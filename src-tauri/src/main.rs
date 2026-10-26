@@ -10,7 +10,7 @@ fn main() {
         let value = |flag: &str, default: u32| {
             args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(default)
         };
-        let (fps, display) = (value("--fps", 30), value("--pantalla", 1) as usize);
+        let (fps, display) = (value("--fps", 60), value("--pantalla", 1) as usize);
         match personal_screen_recorder_lib::self_test(seconds, display, fps, system_audio, microphone) {
             Ok(path) => println!("OK {}", path.display()),
             Err(e) => {

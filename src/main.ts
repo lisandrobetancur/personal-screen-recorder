@@ -56,7 +56,7 @@ const state = {
   kind: "display" as SourceKind,
   sources: [] as Source[],
   selected: null as Source | null,
-  fps: 30,
+  fps: 60,
   recording: false,
   busy: false,
   startedAt: 0,
