@@ -305,11 +305,13 @@ async function changeOutputDir() {
 
 // ---------- Avisos de grabación vacía ----------
 
-const alertTexts: Record<Check, ["alert.blackTitle" | "alert.micTitle" | "alert.systemTitle", "alert.blackText" | "alert.micText" | "alert.systemText"]> = {
+const alertTexts = {
   black: ["alert.blackTitle", "alert.blackText"],
   microphone: ["alert.micTitle", "alert.micText"],
   system: ["alert.systemTitle", "alert.systemText"],
-};
+  microphoneLost: ["alert.micLostTitle", "alert.micLostText"],
+  systemLost: ["alert.systemLostTitle", "alert.systemLostText"],
+} as const satisfies Record<Check, readonly [string, string]>;
 
 function startWatching() {
   state.watchdog = new Watchdog({ system: els.systemAudio.checked, microphone: els.microphone.checked });

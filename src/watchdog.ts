@@ -8,10 +8,12 @@
 // - Audio del sistema: pregunta a los 5 s y, si sigue sin llegar nada, una vez
 //   más a los 2 minutos (que no suene nada al principio es normal).
 //
-// En cuanto llega sonido de una fuente, no vuelve a preguntar por ella. La
-// grabación nunca se detiene sola: solo si la persona pulsa «Detener».
+// - Sonido perdido: si una fuente que ya tenía sonido pasa 15 s en silencio
+//   absoluto (en cualquier momento), avisa una vez por cada corte.
+//
+// La grabación nunca se detiene sola: solo si la persona pulsa «Detener».
 
-export type Check = "black" | "microphone" | "system";
+export type Check = "black" | "microphone" | "system" | "microphoneLost" | "systemLost";
 
 export interface HealthReport {
   elapsedSecs: number;
@@ -29,6 +31,9 @@ const BLACK_REPEAT_SECS = 30;
 const MIC_REPEAT_SECS = 30;
 const MIC_WINDOW_SECS = 5 * 60;
 const SYSTEM_SECOND_ASK_SECS = 2 * 60;
+const LOST_AFTER_SECS = 15;
+/** Por debajo de esto se considera que el sonido volvió. */
+const SOUND_BACK_SECS = 1;
 
 export class Watchdog {
   private nextMicAsk = FIRST_CHECK_SECS;
@@ -36,6 +41,8 @@ export class Watchdog {
   private systemAsks = 0;
   private blackAsks = 0;
   private nextBlackAsk = 0;
+  /** Ya se avisó del corte actual de cada fuente; se rearma cuando vuelve el sonido. */
+  private lostWarned = { microphone: false, system: false };
   private open: Check | null = null;
 
   constructor(private readonly sources: { system: boolean; microphone: boolean }) {}
@@ -49,10 +56,17 @@ export class Watchdog {
     // Si la imagen volvió, un negro nuevo se puede preguntar enseguida.
     if (r.blackSecs === 0) this.nextBlackAsk = 0;
 
+    const micBack = r.microphoneHeard && r.microphoneSilentSecs < SOUND_BACK_SECS;
+    const systemBack = r.systemHeard && r.systemSilentSecs < SOUND_BACK_SECS;
+    if (micBack) this.lostWarned.microphone = false;
+    if (systemBack) this.lostWarned.system = false;
+
     // Si mientras se preguntaba volvió la señal, la pregunta sobra.
     if (this.open === "black" && r.blackSecs === 0) this.open = null;
     if (this.open === "microphone" && r.microphoneHeard) this.open = null;
     if (this.open === "system" && r.systemHeard) this.open = null;
+    if (this.open === "microphoneLost" && micBack) this.open = null;
+    if (this.open === "systemLost" && systemBack) this.open = null;
     if (this.open) return this.open;
 
     const t = r.elapsedSecs;
@@ -79,6 +93,15 @@ export class Watchdog {
       r.systemSilentSecs >= FIRST_CHECK_SECS
     ) {
       this.open = "system";
+    } else if (
+      this.sources.microphone &&
+      r.microphoneHeard &&
+      !this.lostWarned.microphone &&
+      r.microphoneSilentSecs >= LOST_AFTER_SECS
+    ) {
+      this.open = "microphoneLost";
+    } else if (this.sources.system && r.systemHeard && !this.lostWarned.system && r.systemSilentSecs >= LOST_AFTER_SECS) {
+      this.open = "systemLost";
     }
     return this.open;
   }
@@ -96,6 +119,12 @@ export class Watchdog {
       case "system":
         this.systemAsks += 1;
         this.nextSystemAsk = Math.max(elapsedSecs + 1, SYSTEM_SECOND_ASK_SECS);
+        break;
+      case "microphoneLost":
+        this.lostWarned.microphone = true;
+        break;
+      case "systemLost":
+        this.lostWarned.system = true;
         break;
     }
     this.open = null;

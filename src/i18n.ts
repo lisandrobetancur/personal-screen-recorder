@@ -49,6 +49,10 @@ const es = {
   "alert.micText": "Revisa que esté encendido y que sea el correcto. ¿Es silencio real?",
   "alert.systemTitle": "No llega audio del sistema",
   "alert.systemText": "Si todavía no suena nada, es normal. ¿Es silencio real?",
+  "alert.micLostTitle": "Se perdió el sonido del micrófono",
+  "alert.micLostText": "Hace 15 segundos que no llega nada. ¿Se desconectó o es silencio real?",
+  "alert.systemLostTitle": "Se perdió el audio del sistema",
+  "alert.systemLostText": "Hace 15 segundos que no suena nada en el equipo. ¿Es silencio real?",
 };
 
 type Key = keyof typeof es;
@@ -101,6 +105,10 @@ const en: Record<Key, string> = {
   "alert.micText": "Check that it's on and that it's the right one. Is the silence real?",
   "alert.systemTitle": "No system audio",
   "alert.systemText": "If nothing is playing yet, that's normal. Is the silence real?",
+  "alert.micLostTitle": "Microphone sound was lost",
+  "alert.micLostText": "Nothing has arrived for 15 seconds. Was it disconnected, or is the silence real?",
+  "alert.systemLostTitle": "System audio was lost",
+  "alert.systemLostText": "Nothing has played on this computer for 15 seconds. Is the silence real?",
 };
 
 let current: Record<Key, string> = es;
