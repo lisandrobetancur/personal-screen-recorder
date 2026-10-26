@@ -802,6 +802,15 @@ body.is-recording .timer {
   transition: border-radius 0.2s;
 }
 
+.record-button kbd {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.2);
+  font: 500 12px/1.4 inherit;
+  letter-spacing: 0.04em;
+}
+
 .record-button.recording {
   background: var(--text);
   color: var(--bg);

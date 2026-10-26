@@ -3,6 +3,7 @@
 pub mod i18n;
 pub mod capture;
 mod settings;
+mod tray;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -10,7 +11,8 @@ use std::sync::Mutex;
 use capture::health::HealthReport;
 use capture::{Microphone, RecordOptions, Recording, Source};
 use settings::Settings;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[derive(Default)]
 struct AppState {
@@ -24,6 +26,12 @@ struct AppState {
 #[tauri::command]
 fn get_language() -> &'static str {
     i18n::code()
+}
+
+/// Atajo global para grabar y detener, como se muestra en la interfaz.
+#[tauri::command]
+fn get_shortcut() -> &'static str {
+    tray::shortcut_label()
 }
 
 #[tauri::command]
@@ -84,6 +92,7 @@ async fn start_recording(
     let dir = options.output_dir.clone().unwrap_or_else(|| load_settings(&app).output_dir());
     let path = capture::new_output_path(Some(&dir))?;
     *slot = Some(Recording::start(&options, path.clone())?);
+    app.state::<tray::Tray>().set_recording(true);
     Ok(path)
 }
 
@@ -94,14 +103,31 @@ fn recording_health(state: State<'_, AppState>) -> Option<HealthReport> {
 }
 
 #[tauri::command]
-async fn stop_recording(state: State<'_, AppState>) -> Result<PathBuf, String> {
+async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Result<PathBuf, String> {
     let recording = state
         .recording
         .lock()
         .map_err(|e| e.to_string())?
         .take()
         .ok_or(tr!("No hay ninguna grabación en curso.", "No recording in progress."))?;
+    app.state::<tray::Tray>().set_recording(false);
     recording.stop()
+}
+
+fn is_recording(app: &AppHandle) -> bool {
+    app.state::<AppState>().recording.lock().is_ok_and(|r| r.is_some())
+}
+
+/// Salir desde la barra de menú: si se está grabando, primero se guarda.
+pub(crate) fn quit(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let recording = app.state::<AppState>().recording.lock().ok().and_then(|mut r| r.take());
+        if let Some(recording) = recording {
+            let _ = recording.stop();
+        }
+        app.exit(0);
+    });
 }
 
 /// Graba la pantalla número `display` (desde 1) `seconds` segundos sin abrir la interfaz.
@@ -140,13 +166,41 @@ pub fn self_test(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        tray::request_toggle(app);
+                    }
+                })
+                .build(),
+        )
         .manage(AppState::default())
+        .setup(|app| {
+            tray::setup(app.handle())?;
+            // Si otra app ya usa el atajo, se sigue sin él (queda el ícono).
+            if let Err(e) = app.global_shortcut().register(tray::SHORTCUT) {
+                eprintln!("No se pudo registrar el atajo {}: {e}", tray::SHORTCUT);
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Cerrar la ventana mientras se graba no corta la grabación: solo
+            // la oculta (se detiene desde el ícono o con el atajo).
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if is_recording(window.app_handle()) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_language,
+            get_shortcut,
             list_sources,
             list_microphones,
             get_output_dir,
@@ -155,6 +209,15 @@ pub fn run() {
             stop_recording,
             recording_health
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    app.run(|app, event| {
+        // Mac: clic en el ícono del Dock con la ventana oculta la vuelve a mostrar.
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen { .. } = event {
+            tray::show_window(app);
+        }
+        let _ = (app, event);
+    });
 }

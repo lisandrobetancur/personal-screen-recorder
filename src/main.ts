@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
@@ -362,17 +363,33 @@ function showAlert(questions: Check[]) {
 
 /** Notificación del sistema: mientras se graba, la ventana suele estar detrás. */
 async function notify(questions: Check[]) {
-  if (preview) return;
   const [title, text] = alertTexts[questions[0]];
   const body = questions.length === 1 ? t(text) : questions.slice(1).map((q) => t(alertTexts[q][0])).join(" · ");
+  await sendSystemNotification(t(title), body);
+  if (!preview) getCurrentWindow().requestUserAttention(2).catch(() => {});
+}
+
+async function sendSystemNotification(title: string, body: string) {
+  if (preview) return;
   try {
     let granted = await isPermissionGranted();
     if (!granted) granted = (await requestPermission()) === "granted";
-    if (granted) sendNotification({ title: t(title), body });
+    if (granted) sendNotification({ title, body });
   } catch {
     // Sin notificaciones queda el aviso dentro de la app.
   }
-  getCurrentWindow().requestUserAttention(2).catch(() => {});
+}
+
+/** Grabar o detener desde el atajo global o el ícono de la barra de menú. */
+function toggleFromShortcut() {
+  if (state.busy) return;
+  if (!state.recording && !state.selected) {
+    // No hay qué grabar elegido: se muestra la app para elegirlo.
+    getCurrentWindow().show().then(() => getCurrentWindow().setFocus()).catch(() => {});
+    openSection("source");
+    return;
+  }
+  toggleRecording();
 }
 
 // ---------- Grabación ----------
@@ -424,6 +441,8 @@ async function toggleRecording() {
       els.lastMeta.textContent = `${t("last.duration")} ${duration}`;
       els.last.hidden = false;
       setStatus(t("status.saved"));
+      // Si se detuvo con el atajo o desde el ícono, la ventana suele estar detrás.
+      if (!document.hasFocus()) sendSystemNotification(t("status.saved"), els.lastName.textContent ?? "");
     }
   } catch (e) {
     window.clearInterval(state.timerId);
@@ -480,6 +499,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   els.reveal.addEventListener("click", () => state.lastPath && !preview && revealItemInDir(state.lastPath));
 
+  if (!preview) {
+    listen("toggle-recording", toggleFromShortcut).catch(() => {});
+    const shortcut = await invoke<string>("get_shortcut").catch(() => "");
+    if (shortcut) {
+      els.record.title = t("record.shortcut", { shortcut });
+      const kbd = $<HTMLElement>("#record-kbd");
+      kbd.textContent = shortcut;
+      kbd.hidden = false;
+    }
+  }
   showOutputDir(await invoke<string>("get_output_dir"));
   await Promise.all([loadSources(), loadMicrophones()]);
 
