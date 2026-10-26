@@ -45,14 +45,14 @@ type SharedEncoder = Arc<Mutex<Option<VideoEncoder>>>;
 pub fn list_sources() -> Result<Vec<Source>, String> {
     let mut sources = Vec::new();
 
-    let monitors = Monitor::enumerate().map_err(|e| format!("No se pudieron listar las pantallas: {e}"))?;
+    let monitors = Monitor::enumerate().map_err(|e| tr!(format!("No se pudieron listar las pantallas: {e}"), format!("Couldn't list displays: {e}")))?;
     for (i, monitor) in monitors.iter().enumerate() {
         let (Ok(width), Ok(height)) = (monitor.width(), monitor.height()) else { continue };
         sources.push(Source {
             kind: SourceKind::Display,
             // Posición en la lista (desde 1), como `Monitor::from_index`.
             id: (i + 1) as u32,
-            name: format!("Pantalla {} — {width}×{height}", i + 1),
+            name: format!("{} {} — {width}×{height}", tr!("Pantalla", "Display"), i + 1),
             width,
             height,
         });
@@ -60,7 +60,7 @@ pub fn list_sources() -> Result<Vec<Source>, String> {
 
     let own_pid = std::process::id();
     let mut windows: Vec<Source> = Window::enumerate()
-        .map_err(|e| format!("No se pudieron listar las ventanas: {e}"))?
+        .map_err(|e| tr!(format!("No se pudieron listar las ventanas: {e}"), format!("Couldn't list windows: {e}")))?
         .into_iter()
         .filter(|w| w.is_valid() && w.process_id().ok() != Some(own_pid))
         .filter_map(|w| {
@@ -138,7 +138,7 @@ impl Recording {
             ContainerSettingsBuilder::new(),
             &path,
         )
-        .map_err(|e| format!("No se pudo crear el archivo: {e}"))?;
+        .map_err(|e| tr!(format!("No se pudo crear el archivo: {e}"), format!("Couldn't create the file: {e}")))?;
         let encoder: SharedEncoder = Arc::new(Mutex::new(Some(encoder)));
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -150,7 +150,7 @@ impl Recording {
         let capture = match options.source_kind {
             SourceKind::Display => {
                 let monitor = Monitor::from_index(options.source_id as usize)
-                    .map_err(|_| "La pantalla elegida ya no está conectada.")?;
+                    .map_err(|_| tr!("La pantalla elegida ya no está conectada.", "The chosen display is no longer connected."))?;
                 CaptureHandler::start_free_threaded(Settings::new(
                     monitor,
                     cursor,
@@ -165,7 +165,7 @@ impl Recording {
             SourceKind::Window => {
                 let window = Window::from_raw_hwnd(options.source_id as usize as *mut std::ffi::c_void);
                 if !window.is_valid() {
-                    return Err("La ventana elegida ya no existe.".into());
+                    return Err(tr!("La ventana elegida ya no existe.", "The chosen window no longer exists.").into());
                 }
                 CaptureHandler::start_free_threaded(Settings::new(
                     window,
@@ -183,7 +183,7 @@ impl Recording {
             Ok(c) => c,
             Err(e) => {
                 stop.store(true, Ordering::Relaxed);
-                return Err(format!("No se pudo iniciar la captura: {e}"));
+                return Err(tr!(format!("No se pudo iniciar la captura: {e}"), format!("Couldn't start capturing: {e}")));
             }
         };
 
@@ -199,11 +199,11 @@ impl Recording {
             // Si la ventana se cerró, la captura ya terminó sola.
             let _ = capture.stop();
         }
-        let encoder = self.encoder.lock().map_err(|_| "El grabador quedó en mal estado.")?.take();
+        let encoder = self.encoder.lock().map_err(|_| tr!("El grabador quedó en mal estado.", "The recorder is in a bad state."))?.take();
         encoder
-            .ok_or("La grabación ya estaba cerrada.")?
+            .ok_or(tr!("La grabación ya estaba cerrada.", "The recording was already closed."))?
             .finish()
-            .map_err(|e| format!("La grabación falló al cerrar el archivo: {e}"))?;
+            .map_err(|e| tr!(format!("La grabación falló al cerrar el archivo: {e}"), format!("Recording failed while closing the file: {e}")))?;
         Ok(std::mem::take(&mut self.path))
     }
 }
@@ -219,13 +219,13 @@ fn source_size(options: &RecordOptions) -> Result<(u32, u32), String> {
     match options.source_kind {
         SourceKind::Display => {
             let m = Monitor::from_index(options.source_id as usize)
-                .map_err(|_| "La pantalla elegida ya no está conectada.")?;
+                .map_err(|_| tr!("La pantalla elegida ya no está conectada.", "The chosen display is no longer connected."))?;
             Ok((even(m.width().map_err(|e| e.to_string())?), even(m.height().map_err(|e| e.to_string())?)))
         }
         SourceKind::Window => {
             let w = Window::from_raw_hwnd(options.source_id as usize as *mut std::ffi::c_void);
-            let width = w.width().map_err(|_| "La ventana elegida ya no existe.")?;
-            let height = w.height().map_err(|_| "La ventana elegida ya no existe.")?;
+            let width = w.width().map_err(|_| tr!("La ventana elegida ya no existe.", "The chosen window no longer exists."))?;
+            let height = w.height().map_err(|_| tr!("La ventana elegida ya no existe.", "The chosen window no longer exists."))?;
             Ok((even(width.max(2) as u32), even(height.max(2) as u32)))
         }
     }
@@ -328,8 +328,8 @@ enum Endpoint {
 fn spawn_capture(endpoint: Endpoint, pending: Pending, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>, String> {
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let label = match endpoint {
-        Endpoint::SystemLoopback => "el audio del sistema",
-        Endpoint::Microphone(_) => "el micrófono",
+        Endpoint::SystemLoopback => tr!("el audio del sistema", "system audio"),
+        Endpoint::Microphone(_) => tr!("el micrófono", "the microphone"),
     };
     let thread = std::thread::spawn(move || {
         if let Err(e) = capture_loop(&endpoint, &pending, &stop, &ready_tx) {
@@ -338,8 +338,11 @@ fn spawn_capture(endpoint: Endpoint, pending: Pending, stop: Arc<AtomicBool>) ->
     });
     match ready_rx.recv_timeout(Duration::from_secs(5)) {
         Ok(Ok(())) => Ok(thread),
-        Ok(Err(e)) => Err(format!("No se pudo capturar {label}: {e}")),
-        Err(_) => Err(format!("No se pudo capturar {label}: no respondió.")),
+        Ok(Err(e)) => Err(tr!(format!("No se pudo capturar {label}: {e}"), format!("Couldn't capture {label}: {e}"))),
+        Err(_) => Err(tr!(
+            format!("No se pudo capturar {label}: no respondió."),
+            format!("Couldn't capture {label}: it didn't respond."),
+        )),
     }
 }
 

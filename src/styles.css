@@ -198,6 +198,12 @@ main {
   padding: 10px 16px 16px;
 }
 
+/* Las tarjetas nunca se comprimen: si falta alto, la ventana crece o main
+   se desplaza. Si se comprimieran, el ajuste de alto mediría de menos. */
+main > * {
+  flex-shrink: 0;
+}
+
 .card {
   display: flex;
   flex-direction: column;

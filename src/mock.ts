@@ -21,6 +21,8 @@ export async function mockPickFolder(): Promise<string> {
 export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 150));
   const results: Record<string, unknown> = {
+    // En el navegador se puede probar el inglés con ?lang=en.
+    get_language: new URLSearchParams(location.search).get("lang") ?? "es",
     list_sources: sources,
     list_microphones: microphones,
     get_output_dir: "/Users/demo/Movies/Personal Screen Recorder",

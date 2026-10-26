@@ -75,7 +75,12 @@ impl AudioConformer {
         let format = NonNull::new(out.cast_mut())
             .filter(|_| status == 0)
             .map(|p| unsafe { CFRetained::from_raw(p) })
-            .ok_or_else(|| format!("No se pudo preparar el formato de audio ({status})."))?;
+            .ok_or_else(|| {
+                tr!(
+                    format!("No se pudo preparar el formato de audio ({status})."),
+                    format!("Couldn't set up the audio format ({status})."),
+                )
+            })?;
         Ok(Self {
             channels,
             format,

@@ -1,3 +1,6 @@
+// `i18n` primero: su macro `tr!` debe estar definida antes de los demás módulos.
+#[macro_use]
+pub mod i18n;
 pub mod capture;
 mod settings;
 
@@ -15,6 +18,12 @@ struct AppState {
 
 // Los comandos son `async` para que corran fuera del hilo principal:
 // ScreenCaptureKit responde en colas propias y bloquearía la interfaz.
+
+/// Idioma de la interfaz según el sistema ("es" o "en").
+#[tauri::command]
+fn get_language() -> &'static str {
+    i18n::code()
+}
 
 #[tauri::command]
 async fn list_sources() -> Result<Vec<Source>, String> {
@@ -43,11 +52,16 @@ fn get_output_dir(app: AppHandle) -> PathBuf {
 #[tauri::command]
 fn set_output_dir(app: AppHandle, path: PathBuf) -> Result<PathBuf, String> {
     if !path.is_dir() {
-        return Err("Esa carpeta no existe.".into());
+        return Err(tr!("Esa carpeta no existe.", "That folder doesn't exist.").into());
     }
     // Comprueba que se pueda escribir ahí antes de guardarla.
     let probe = path.join(".personal-screen-recorder-prueba");
-    std::fs::write(&probe, b"").map_err(|_| "No se puede guardar en esa carpeta (sin permiso de escritura).")?;
+    std::fs::write(&probe, b"").map_err(|_| {
+        tr!(
+            "No se puede guardar en esa carpeta (sin permiso de escritura).",
+            "Can't save to that folder (no write permission).",
+        )
+    })?;
     let _ = std::fs::remove_file(&probe);
 
     let mut settings = load_settings(&app);
@@ -64,7 +78,7 @@ async fn start_recording(
 ) -> Result<PathBuf, String> {
     let mut slot = state.recording.lock().map_err(|e| e.to_string())?;
     if slot.is_some() {
-        return Err("Ya hay una grabación en curso.".into());
+        return Err(tr!("Ya hay una grabación en curso.", "A recording is already in progress.").into());
     }
     let dir = options.output_dir.clone().unwrap_or_else(|| load_settings(&app).output_dir());
     let path = capture::new_output_path(Some(&dir))?;
@@ -79,7 +93,7 @@ async fn stop_recording(state: State<'_, AppState>) -> Result<PathBuf, String> {
         .lock()
         .map_err(|e| e.to_string())?
         .take()
-        .ok_or("No hay ninguna grabación en curso.")?;
+        .ok_or(tr!("No hay ninguna grabación en curso.", "No recording in progress."))?;
     recording.stop()
 }
 
@@ -97,7 +111,7 @@ pub fn self_test(
         .into_iter()
         .filter(|s| s.kind == capture::SourceKind::Display)
         .nth(display.saturating_sub(1))
-        .ok_or("No existe esa pantalla.")?;
+        .ok_or(tr!("No existe esa pantalla.", "That display doesn't exist."))?;
     let options = RecordOptions {
         source_kind: display.kind,
         source_id: display.id,
@@ -122,6 +136,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            get_language,
             list_sources,
             list_microphones,
             get_output_dir,

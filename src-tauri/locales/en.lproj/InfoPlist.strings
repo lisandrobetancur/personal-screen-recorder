@@ -1,0 +1,3 @@
+/* macOS permission prompts in English. */
+"NSMicrophoneUsageDescription" = "To record your voice along with the screen.";
+"NSCameraUsageDescription" = "To include the camera in the recording.";

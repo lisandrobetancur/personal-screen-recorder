@@ -2,9 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- Idiomas de la app: macOS usa el del sistema (textos en locales/*.lproj). -->
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>es</string>
+  </array>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Para grabar tu voz junto con la pantalla.</string>
+  <string>To record your voice along with the screen.</string>
   <key>NSCameraUsageDescription</key>
-  <string>Para incluir la cámara en la grabación.</string>
+  <string>To include the camera in the recording.</string>
 </dict>
 </plist>

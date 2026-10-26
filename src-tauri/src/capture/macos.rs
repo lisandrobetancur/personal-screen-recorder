@@ -41,8 +41,14 @@ const FRAGMENT_SECONDS: f64 = 2.0;
 /// H.264 no admite más de 4096×2304; por encima se usa HEVC.
 const H264_MAX: (u32, u32) = (4096, 2304);
 
-const PERMISSION_HINT: &str = "Activa el permiso en Ajustes del Sistema → Privacidad y seguridad → \
-     Grabación de pantalla y audio del sistema, y vuelve a abrir la app.";
+fn permission_hint() -> &'static str {
+    tr!(
+        "Activa el permiso en Ajustes del Sistema → Privacidad y seguridad → \
+         Grabación de pantalla y audio del sistema, y vuelve a abrir la app.",
+        "Turn it on in System Settings → Privacy & Security → \
+         Screen & System Audio Recording, then reopen the app.",
+    )
+}
 
 pub fn list_sources() -> Result<Vec<Source>, String> {
     let content = shareable_content()?;
@@ -53,7 +59,7 @@ pub fn list_sources() -> Result<Vec<Source>, String> {
         sources.push(Source {
             kind: SourceKind::Display,
             id: display.display_id(),
-            name: format!("Pantalla {} — {width}×{height}", i + 1),
+            name: format!("{} {} — {width}×{height}", tr!("Pantalla", "Display"), i + 1),
             width,
             height,
         });
@@ -103,7 +109,11 @@ pub struct Recording {
 impl Recording {
     pub fn start(options: &RecordOptions, path: PathBuf) -> Result<Self, String> {
         if options.microphone && !supports_microphone() {
-            return Err("Grabar el micrófono requiere macOS 15 o superior.".into());
+            return Err(tr!(
+                "Grabar el micrófono requiere macOS 15 o superior.",
+                "Recording the microphone requires macOS 15 or later.",
+            )
+            .into());
         }
         if options.microphone {
             ensure_microphone_access()?;
@@ -162,7 +172,11 @@ impl Recording {
             if let Ok(mut w) = writer.lock() {
                 w.cancel();
             }
-            return Err(format!("No se pudo iniciar la captura: {e}. {PERMISSION_HINT}"));
+            return Err(format!(
+                "{}: {e}. {}",
+                tr!("No se pudo iniciar la captura", "Couldn't start capturing"),
+                permission_hint()
+            ));
         }
 
         Ok(Self { stream, writer, path })
@@ -171,7 +185,7 @@ impl Recording {
     pub fn stop(self) -> Result<PathBuf, String> {
         // Si la fuente desapareció (ventana cerrada), la captura ya se detuvo sola.
         let _ = self.stream.stop_capture();
-        let mut writer = self.writer.lock().map_err(|_| "El grabador quedó en mal estado.")?;
+        let mut writer = self.writer.lock().map_err(|_| tr!("El grabador quedó en mal estado.", "The recorder is in a bad state."))?;
         writer.finish()?;
         // Si la copia a MP4 falla, se conserva el .mov: la grabación no se pierde.
         Ok(convert_to_mp4(&self.path).unwrap_or(self.path))
@@ -182,13 +196,13 @@ impl Recording {
 /// borra el .mov.
 fn convert_to_mp4(mov: &std::path::Path) -> Result<PathBuf, String> {
     let mp4 = mov.with_extension("mp4");
-    let source = NSURL::from_file_path(mov).ok_or("Ruta inválida.")?;
-    let target = NSURL::from_file_path(&mp4).ok_or("Ruta inválida.")?;
+    let source = NSURL::from_file_path(mov).ok_or(tr!("Ruta inválida.", "Invalid path."))?;
+    let target = NSURL::from_file_path(&mp4).ok_or(tr!("Ruta inválida.", "Invalid path."))?;
     let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&source, None) };
     let session = unsafe {
         AVAssetExportSession::exportSessionWithAsset_presetName(&asset, AVAssetExportPresetPassthrough)
     }
-    .ok_or("No se pudo preparar la conversión a MP4.")?;
+    .ok_or(tr!("No se pudo preparar la conversión a MP4.", "Couldn't prepare the MP4 conversion."))?;
     unsafe {
         session.setOutputURL(Some(&target));
         session.setOutputFileType(Some(constant(AVFileTypeMPEG4)));
@@ -201,7 +215,7 @@ fn convert_to_mp4(mov: &std::path::Path) -> Result<PathBuf, String> {
     });
     unsafe { session.exportAsynchronouslyWithCompletionHandler(&handler) };
     // Solo copia datos: incluso horas de grabación tardan segundos.
-    rx.recv_timeout(Duration::from_secs(600)).map_err(|_| "La conversión a MP4 tardó demasiado.")?;
+    rx.recv_timeout(Duration::from_secs(600)).map_err(|_| tr!("La conversión a MP4 tardó demasiado.", "The MP4 conversion took too long."))?;
 
     if unsafe { session.status() } == AVAssetExportSessionStatus::Completed {
         let _ = std::fs::remove_file(mov);
@@ -260,11 +274,13 @@ impl Writer {
         system_audio: bool,
         microphone: bool,
     ) -> Result<Self, String> {
-        let url = NSURL::from_file_path(path).ok_or("Ruta de salida inválida.")?;
+        let url = NSURL::from_file_path(path).ok_or(tr!("Ruta de salida inválida.", "Invalid output path."))?;
         let writer = unsafe {
             AVAssetWriter::assetWriterWithURL_fileType_error(&url, constant(AVFileTypeQuickTimeMovie))
         }
-        .map_err(|e| format!("No se pudo crear el archivo: {}", e.localizedDescription()))?;
+        .map_err(|e| {
+            format!("{}: {}", tr!("No se pudo crear el archivo", "Couldn't create the file"), e.localizedDescription())
+        })?;
 
         unsafe {
             // No usar shouldOptimizeForNetworkUse: con fragmentos, reescribir el
@@ -274,23 +290,31 @@ impl Writer {
 
         let video = new_input(constant(unsafe { AVMediaTypeVideo }), &video_settings(width, height, fps));
         let system_audio = system_audio
-            .then(|| AudioTrack::new(2, SYSTEM_AUDIO_BITRATE, "audio del sistema"))
+            .then(|| AudioTrack::new(2, SYSTEM_AUDIO_BITRATE, tr!("audio del sistema", "system audio")))
             .transpose()?;
         let microphone =
-            microphone.then(|| AudioTrack::new(1, MICROPHONE_BITRATE, "micrófono")).transpose()?;
+            microphone.then(|| AudioTrack::new(1, MICROPHONE_BITRATE, tr!("micrófono", "microphone"))).transpose()?;
 
         let inputs = [Some(&video), system_audio.as_ref().map(|t| &t.input), microphone.as_ref().map(|t| &t.input)];
         for input in inputs.into_iter().flatten() {
             unsafe {
                 if !writer.canAddInput(input) {
-                    return Err("El formato de grabación no es compatible con este equipo.".into());
+                    return Err(tr!(
+                        "El formato de grabación no es compatible con este equipo.",
+                        "This computer doesn't support the recording format.",
+                    )
+                    .into());
                 }
                 writer.addInput(input);
             }
         }
 
         if !unsafe { writer.startWriting() } {
-            return Err(format!("No se pudo empezar a escribir: {}", writer_error(&writer)));
+            return Err(format!(
+                "{}: {}",
+                tr!("No se pudo empezar a escribir", "Couldn't start writing"),
+                writer_error(&writer)
+            ));
         }
 
         Ok(Self {
@@ -332,7 +356,7 @@ impl Writer {
                     let frame = if unsafe { duration.seconds() } > 0.0 { duration } else { unsafe { CMTime::new(1, 60) } };
                     self.session_end = Some(unsafe { pts.add(frame) });
                 } else {
-                    self.note_failure("video", String::new());
+                    self.note_failure(tr!("video", "video"), String::new());
                 }
             }
             self.pad_audio(seconds);
@@ -370,14 +394,15 @@ impl Writer {
             }
         }
         if let Some(label) = failed {
-            self.note_failure(label, "silencio de relleno".into());
+            self.note_failure(label, tr!("silencio de relleno", "padding silence").into());
         }
     }
 
     fn note_failure(&mut self, track: &str, source_format: String) {
         if self.first_failure.is_none() {
-            let format = if source_format.is_empty() { String::new() } else { format!(" (entrada: {source_format})") };
-            self.first_failure = Some(format!("pista de {track}{format}: {}", writer_error(&self.writer)));
+            let format = if source_format.is_empty() { String::new() } else { format!(" ({}: {source_format})", tr!("entrada", "input")) };
+            self.first_failure =
+                Some(format!("{} {track}{format}: {}", tr!("pista de", "track:"), writer_error(&self.writer)));
         }
     }
 
@@ -388,7 +413,11 @@ impl Writer {
         self.done = true;
         if !self.session_started {
             self.cancel();
-            return Err("No se recibió ninguna imagen de la fuente; no se guardó el archivo.".into());
+            return Err(tr!(
+                "No se recibió ninguna imagen de la fuente; no se guardó el archivo.",
+                "No image arrived from the source; the file wasn't saved.",
+            )
+            .into());
         }
 
         let inputs = [
@@ -411,12 +440,13 @@ impl Writer {
         });
         unsafe { self.writer.finishWritingWithCompletionHandler(&handler) };
         rx.recv_timeout(Duration::from_secs(120))
-            .map_err(|_| "El archivo tardó demasiado en cerrarse.")?;
+            .map_err(|_| tr!("El archivo tardó demasiado en cerrarse.", "The file took too long to close."))?;
 
         match unsafe { self.writer.status() } {
             AVAssetWriterStatus::Completed => Ok(()),
             _ => Err(format!(
-                "La grabación falló en la {}",
+                "{} {}",
+                tr!("La grabación falló en la", "Recording failed on the"),
                 self.first_failure.clone().unwrap_or_else(|| writer_error(&self.writer))
             )),
         }
@@ -443,7 +473,7 @@ fn shareable_content() -> Result<SCShareableContent, String> {
         }
     }
     SCShareableContent::get()
-        .map_err(|e| format!("No hay acceso a la pantalla ({e}). {PERMISSION_HINT}"))
+        .map_err(|e| format!("{} ({e}). {}", tr!("No hay acceso a la pantalla", "No access to the screen"), permission_hint()))
 }
 
 fn build_filter(
@@ -456,7 +486,7 @@ fn build_filter(
                 .displays()
                 .into_iter()
                 .find(|d| d.display_id() == options.source_id)
-                .ok_or("La pantalla elegida ya no está conectada.")?;
+                .ok_or(tr!("La pantalla elegida ya no está conectada.", "The chosen display is no longer connected."))?;
             let own_pid = std::process::id() as i32;
             let own_app = content.applications().into_iter().find(|a| a.process_id() == own_pid);
             let builder = SCContentFilter::create().with_display(&display);
@@ -471,7 +501,7 @@ fn build_filter(
                 .windows()
                 .into_iter()
                 .find(|w| w.window_id() == options.source_id)
-                .ok_or("La ventana elegida ya no existe.")?;
+                .ok_or(tr!("La ventana elegida ya no existe.", "The chosen window no longer exists."))?;
             SCContentFilter::create().with_window(&window).build()
         }
     }
@@ -575,8 +605,12 @@ fn new_input(
 /// ScreenCaptureKit no pide el permiso de micrófono: si falta, falla con un
 /// mensaje engañoso sobre la pantalla. Por eso se pide aquí antes de empezar.
 fn ensure_microphone_access() -> Result<(), String> {
-    const DENIED: &str = "No hay permiso para usar el micrófono. Actívalo en Ajustes del Sistema → \
-         Privacidad y seguridad → Micrófono, o graba sin micrófono.";
+    let denied: &str = tr!(
+        "No hay permiso para usar el micrófono. Actívalo en Ajustes del Sistema → \
+         Privacidad y seguridad → Micrófono, o graba sin micrófono.",
+        "No permission to use the microphone. Turn it on in System Settings → \
+         Privacy & Security → Microphone, or record without it.",
+    );
     let audio = constant(unsafe { AVMediaTypeAudio });
     match unsafe { AVCaptureDevice::authorizationStatusForMediaType(audio) } {
         AVAuthorizationStatus::Authorized => Ok(()),
@@ -589,10 +623,10 @@ fn ensure_microphone_access() -> Result<(), String> {
             // Espera a que la persona responda el aviso del sistema.
             match rx.recv_timeout(Duration::from_secs(300)) {
                 Ok(true) => Ok(()),
-                _ => Err(DENIED.into()),
+                _ => Err(denied.into()),
             }
         }
-        _ => Err(DENIED.into()),
+        _ => Err(denied.into()),
     }
 }
 
@@ -607,7 +641,7 @@ fn supports_microphone() -> bool {
 fn writer_error(writer: &AVAssetWriter) -> String {
     unsafe { writer.error() }
         .map(|e| describe_error(&e))
-        .unwrap_or_else(|| "error desconocido".into())
+        .unwrap_or_else(|| tr!("error desconocido", "unknown error").into())
 }
 
 /// Mensaje, dominio y código del error y de sus errores de fondo, que es

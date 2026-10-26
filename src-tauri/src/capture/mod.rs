@@ -85,9 +85,15 @@ const RECORDING_EXTENSION: &str = "mp4";
 pub fn new_output_path(dir: Option<&Path>) -> Result<PathBuf, String> {
     let dir = dir.map(Path::to_path_buf).unwrap_or_else(default_output_dir);
     std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("No se pudo crear la carpeta {}: {e}", dir.display()))?;
+        .map_err(|e| {
+        tr!(
+            format!("No se pudo crear la carpeta {}: {e}", dir.display()),
+            format!("Couldn't create the folder {}: {e}", dir.display()),
+        )
+    })?;
     let stamp = chrono::Local::now().format("%Y-%m-%d %H.%M.%S");
-    let name = |suffix: &str| dir.join(format!("Grabación {stamp}{suffix}.{RECORDING_EXTENSION}"));
+    let prefix = tr!("Grabación", "Recording");
+    let name = |suffix: &str| dir.join(format!("{prefix} {stamp}{suffix}.{RECORDING_EXTENSION}"));
     let mut path = name("");
     let mut n = 2;
     // Ni el archivo de trabajo ni el .mp4 final deben existir ya.

@@ -4,10 +4,16 @@ use std::path::PathBuf;
 
 use super::{Microphone, RecordOptions, Source};
 
-const PENDING: &str = "La grabación en este sistema todavía no está implementada.";
+fn pending() -> String {
+    tr!(
+        "La grabación en este sistema todavía no está implementada.",
+        "Recording isn't supported on this system yet.",
+    )
+    .into()
+}
 
 pub fn list_sources() -> Result<Vec<Source>, String> {
-    Err(PENDING.into())
+    Err(pending())
 }
 
 pub fn list_microphones() -> Vec<Microphone> {
@@ -18,10 +24,10 @@ pub struct Recording;
 
 impl Recording {
     pub fn start(_options: &RecordOptions, _path: PathBuf) -> Result<Self, String> {
-        Err(PENDING.into())
+        Err(pending())
     }
 
     pub fn stop(self) -> Result<PathBuf, String> {
-        Err(PENDING.into())
+        Err(pending())
     }
 }

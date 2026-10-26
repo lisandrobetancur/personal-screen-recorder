@@ -39,7 +39,11 @@
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "PSR Desarrollo",
-      "entitlements": "./Entitlements.plist"
+      "entitlements": "./Entitlements.plist",
+      "files": {
+        "Resources/es.lproj/InfoPlist.strings": "./locales/es.lproj/InfoPlist.strings",
+        "Resources/en.lproj/InfoPlist.strings": "./locales/en.lproj/InfoPlist.strings"
+      }
     }
   }
 }

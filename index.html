@@ -40,10 +40,10 @@
         <span class="brand-mark"></span>
         <span>Personal Screen Recorder</span>
       </div>
-      <div class="theme" role="radiogroup" aria-label="Tema">
-        <button data-theme="system" title="Tema del sistema" aria-label="Tema del sistema"><svg><use href="#i-auto" /></svg></button>
-        <button data-theme="light" title="Tema claro" aria-label="Tema claro"><svg><use href="#i-sun" /></svg></button>
-        <button data-theme="dark" title="Tema oscuro" aria-label="Tema oscuro"><svg><use href="#i-moon" /></svg></button>
+      <div class="theme" role="radiogroup" aria-label="Tema" data-i18n-label="theme.group">
+        <button data-theme="system" title="Tema del sistema" aria-label="Tema del sistema" data-i18n-title="theme.system" data-i18n-label="theme.system"><svg><use href="#i-auto" /></svg></button>
+        <button data-theme="light" title="Tema claro" aria-label="Tema claro" data-i18n-title="theme.light" data-i18n-label="theme.light"><svg><use href="#i-sun" /></svg></button>
+        <button data-theme="dark" title="Tema oscuro" aria-label="Tema oscuro" data-i18n-title="theme.dark" data-i18n-label="theme.dark"><svg><use href="#i-moon" /></svg></button>
       </div>
     </header>
 
@@ -52,7 +52,7 @@
         <h2 class="fold-head">
           <button class="fold-toggle" aria-expanded="false" aria-controls="body-source">
             <svg class="fold-icon"><use href="#i-monitor" /></svg>
-            <span class="fold-title">Qué grabar</span>
+            <span class="fold-title" data-i18n="section.source">Qué grabar</span>
             <span class="fold-summary" id="summary-source"></span>
             <svg class="chevron"><use href="#i-chevron" /></svg>
           </button>
@@ -61,12 +61,12 @@
           <div class="fold-inner">
             <div class="row source-tools">
               <div class="tabs" role="tablist">
-                <button role="tab" data-kind="display" class="tab active"><svg><use href="#i-monitor" /></svg>Pantalla</button>
-                <button role="tab" data-kind="window" class="tab"><svg><use href="#i-window" /></svg>Ventana</button>
+                <button role="tab" data-kind="display" class="tab active"><svg><use href="#i-monitor" /></svg><span data-i18n="source.display">Pantalla</span></button>
+                <button role="tab" data-kind="window" class="tab"><svg><use href="#i-window" /></svg><span data-i18n="source.window">Ventana</span></button>
               </div>
-              <button id="refresh" class="icon-button" title="Actualizar lista" aria-label="Actualizar lista"><svg><use href="#i-refresh" /></svg></button>
+              <button id="refresh" class="icon-button" title="Actualizar lista" aria-label="Actualizar lista" data-i18n-title="source.refresh" data-i18n-label="source.refresh"><svg><use href="#i-refresh" /></svg></button>
             </div>
-            <ul id="sources" class="sources" aria-label="Fuentes"></ul>
+            <ul id="sources" class="sources" aria-label="Fuentes" data-i18n-label="source.list"></ul>
           </div>
         </div>
       </section>
@@ -75,7 +75,7 @@
         <h2 class="fold-head">
           <button class="fold-toggle" aria-expanded="false" aria-controls="body-audio">
             <svg class="fold-icon"><use href="#i-speaker" /></svg>
-            <span class="fold-title">Audio</span>
+            <span class="fold-title" data-i18n="section.audio">Audio</span>
             <span class="fold-summary" id="summary-audio"></span>
             <svg class="chevron"><use href="#i-chevron" /></svg>
           </button>
@@ -84,12 +84,12 @@
           <div class="fold-inner">
             <label class="option">
               <svg><use href="#i-speaker" /></svg>
-              <span class="option-text">Audio del sistema<small>Lo que suena en el equipo</small></span>
+              <span class="option-text"><span data-i18n="audio.system">Audio del sistema</span><small data-i18n="audio.systemHint">Lo que suena en el equipo</small></span>
               <input type="checkbox" class="toggle" id="system-audio" checked />
             </label>
             <label class="option">
               <svg><use href="#i-mic" /></svg>
-              <span class="option-text">Micrófono<small>Tu voz, en una pista aparte</small></span>
+              <span class="option-text"><span data-i18n="audio.mic">Micrófono</span><small data-i18n="audio.micHint">Tu voz, en una pista aparte</small></span>
               <input type="checkbox" class="toggle" id="microphone" />
             </label>
             <div class="select-wrap" id="microphone-wrap" hidden>
@@ -103,7 +103,7 @@
         <h2 class="fold-head">
           <button class="fold-toggle" aria-expanded="false" aria-controls="body-video">
             <svg class="fold-icon"><use href="#i-film" /></svg>
-            <span class="fold-title">Video</span>
+            <span class="fold-title" data-i18n="section.video">Video</span>
             <span class="fold-summary" id="summary-video"></span>
             <svg class="chevron"><use href="#i-chevron" /></svg>
           </button>
@@ -111,25 +111,25 @@
         <div class="fold-body" id="body-video" inert>
           <div class="fold-inner">
             <div class="row option-row">
-              <span>Cuadros por segundo</span>
-              <div class="segmented" id="fps" role="radiogroup" aria-label="Cuadros por segundo">
+              <span data-i18n="video.fps">Cuadros por segundo</span>
+              <div class="segmented" id="fps" role="radiogroup" aria-label="Cuadros por segundo" data-i18n-label="video.fps">
                 <button data-fps="30">30 fps</button>
                 <button data-fps="60" class="active">60 fps</button>
               </div>
             </div>
             <label class="option">
               <svg><use href="#i-cursor" /></svg>
-              <span class="option-text">Mostrar el cursor</span>
+              <span class="option-text" data-i18n="video.cursor">Mostrar el cursor</span>
               <input type="checkbox" class="toggle" id="show-cursor" checked />
             </label>
             <label class="option">
               <svg><use href="#i-click" /></svg>
-              <span class="option-text">Resaltar los clics</span>
+              <span class="option-text" data-i18n="video.clicks">Resaltar los clics</span>
               <input type="checkbox" class="toggle" id="show-clicks" />
             </label>
             <label class="option">
               <svg><use href="#i-eye-off" /></svg>
-              <span class="option-text">Ocultar esta app<small>Al grabar una pantalla completa</small></span>
+              <span class="option-text"><span data-i18n="video.hideSelf">Ocultar esta app</span><small data-i18n="video.hideSelfHint">Al grabar una pantalla completa</small></span>
               <input type="checkbox" class="toggle" id="exclude-self" checked />
             </label>
           </div>
@@ -139,7 +139,7 @@
       <div id="last" class="last" hidden>
         <svg><use href="#i-film" /></svg>
         <span class="last-text"><span id="last-name"></span><small id="last-meta"></small></span>
-        <button id="reveal" class="icon-button" title="Mostrar en la carpeta" aria-label="Mostrar en la carpeta"><svg><use href="#i-folder" /></svg></button>
+        <button id="reveal" class="icon-button" title="Mostrar en la carpeta" aria-label="Mostrar en la carpeta" data-i18n-title="last.reveal" data-i18n-label="last.reveal"><svg><use href="#i-folder" /></svg></button>
       </div>
     </main>
 
@@ -147,7 +147,7 @@
       <p id="status" class="status" role="status"></p>
       <div class="dock-row">
         <button class="folder" id="change-dir" title="Elegir la carpeta donde se guardan las grabaciones">
-          <svg><use href="#i-folder" /></svg><span id="output-dir"></span><span class="folder-action">Cambiar</span>
+          <svg><use href="#i-folder" /></svg><span id="output-dir"></span><span class="folder-action" data-i18n="folder.change">Cambiar</span>
         </button>
         <span id="timer" class="timer">00:00:00</span>
       </div>

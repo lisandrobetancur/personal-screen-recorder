@@ -2,6 +2,7 @@ import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { setLanguage, t, translatePage } from "./i18n";
 import { mockInvoke, mockPickFolder } from "./mock";
 
 const preview = !isTauri() && import.meta.env.DEV;
@@ -109,9 +110,9 @@ function setSummary(key: string, text: string) {
 
 /** Resumen de cada sección, visible aunque esté cerrada. */
 function updateSummaries() {
-  setSummary("source", state.selected ? splitName(state.selected)[0] : "Elige una fuente");
-  const audio = [els.systemAudio.checked && "Sistema", els.microphone.checked && "Micrófono"].filter(Boolean);
-  setSummary("audio", audio.length ? audio.join(" + ") : "Sin audio");
+  setSummary("source", state.selected ? splitName(state.selected)[0] : t("source.choose"));
+  const audio = [els.systemAudio.checked && t("audio.summarySystem"), els.microphone.checked && t("audio.summaryMic")].filter(Boolean);
+  setSummary("audio", audio.length ? audio.join(" + ") : t("audio.none"));
   setSummary("video", `${state.fps} fps`);
 }
 
@@ -193,7 +194,7 @@ function renderSources() {
   if (list.length === 0) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = state.kind === "display" ? "No se encontraron pantallas." : "No hay ventanas abiertas.";
+    li.textContent = state.kind === "display" ? t("source.noDisplays") : t("source.noWindows");
     els.sources.append(li);
   }
   updateControls();
@@ -203,7 +204,7 @@ function updateControls() {
   els.record.disabled = state.busy || (!state.recording && !state.selected);
   els.record.classList.toggle("recording", state.recording);
   document.body.classList.toggle("is-recording", state.recording);
-  els.recordLabel.textContent = state.busy && state.recording ? "Guardando…" : state.recording ? "Detener" : "Grabar";
+  els.recordLabel.textContent = t(state.busy && state.recording ? "record.saving" : state.recording ? "record.stop" : "record.start");
   const lock = state.recording || state.busy;
   for (const el of [
     els.refresh,
@@ -244,7 +245,7 @@ async function loadMicrophones() {
     ...mics.map((m) => {
       const option = document.createElement("option");
       option.value = m.id;
-      option.textContent = m.isDefault ? `${m.name} (predeterminado)` : m.name;
+      option.textContent = m.isDefault ? `${m.name} (${t("audio.default")})` : m.name;
       option.selected = m.isDefault;
       return option;
     }),
@@ -260,18 +261,18 @@ async function loadMicrophones() {
 
 function showOutputDir(dir: string) {
   state.outputDir = dir;
-  els.changeDir.title = `Se guarda en ${dir}. Clic para elegir otra carpeta.`;
+  els.changeDir.title = t("folder.tooltip", { dir });
   els.outputDir.textContent = dir.replace(/^\/Users\/[^/]+/, "~");
 }
 
 async function changeOutputDir() {
   const picked = preview
     ? await mockPickFolder()
-    : await pickFolder({ directory: true, defaultPath: state.outputDir, title: "Carpeta para las grabaciones" });
+    : await pickFolder({ directory: true, defaultPath: state.outputDir, title: t("folder.pickerTitle") });
   if (typeof picked !== "string") return;
   try {
     showOutputDir(await invoke<string>("set_output_dir", { path: picked }));
-    setStatus("Las próximas grabaciones se guardarán en esa carpeta.");
+    setStatus(t("folder.changed"));
   } catch (e) {
     setStatus(String(e), true);
   }
@@ -312,18 +313,18 @@ async function toggleRecording() {
       state.timerId = window.setInterval(() => {
         els.timer.textContent = formatElapsed(Date.now() - state.startedAt);
       }, 250);
-      setStatus(`Grabando: ${splitName(s).filter(Boolean).join(" — ")}`);
+      setStatus(t("status.recording", { name: splitName(s).filter(Boolean).join(" — ") }));
     } else {
       window.clearInterval(state.timerId);
-      setStatus("Guardando el archivo…");
+      setStatus(t("status.savingFile"));
       const duration = els.timer.textContent;
       const path = await invoke<string>("stop_recording");
       state.recording = false;
       state.lastPath = path;
       els.lastName.textContent = path.split(/[\\/]/).pop() ?? path;
-      els.lastMeta.textContent = `Duración ${duration}`;
+      els.lastMeta.textContent = `${t("last.duration")} ${duration}`;
       els.last.hidden = false;
-      setStatus("Grabación guardada.");
+      setStatus(t("status.saved"));
     }
   } catch (e) {
     window.clearInterval(state.timerId);
@@ -338,6 +339,8 @@ async function toggleRecording() {
 // ---------- Inicio ----------
 
 window.addEventListener("DOMContentLoaded", async () => {
+  setLanguage(await invoke<string>("get_language").catch(() => navigator.language.slice(0, 2)));
+  translatePage();
   applyTheme(readTheme());
   els.themeButtons.forEach((b) => b.addEventListener("click", () => applyTheme(b.dataset.theme as Theme)));
 

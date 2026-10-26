@@ -1,0 +1,3 @@
+/* Avisos de permisos de macOS en español. */
+"NSMicrophoneUsageDescription" = "Para grabar tu voz junto con la pantalla.";
+"NSCameraUsageDescription" = "Para incluir la cámara en la grabación.";

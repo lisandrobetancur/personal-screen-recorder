@@ -25,7 +25,7 @@ impl Settings {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(file, text).map_err(|e| format!("No se pudo guardar la preferencia: {e}"))
+        std::fs::write(file, text).map_err(|e| tr!(format!("No se pudo guardar la preferencia: {e}"), format!("Couldn't save the setting: {e}")))
     }
 
     /// Carpeta elegida si todavía existe; si no, la de omisión.
