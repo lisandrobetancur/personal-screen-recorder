@@ -122,9 +122,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          ls -la instaladores
+          # El artefacto de Windows conserva las subcarpetas nsis/ y msi/.
+          mapfile -t archivos < <(find instaladores -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \))
+          printf '%s\n' "${archivos[@]}"
           gh release delete ultima-version --yes --cleanup-tag || true
-          gh release create ultima-version instaladores/* \
+          gh release create ultima-version "${archivos[@]}" \
             --title "Última versión" \
             --target "$GITHUB_SHA" \
             --prerelease \
