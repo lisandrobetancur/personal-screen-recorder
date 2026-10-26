@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
+mod macos_audio;
+#[cfg(target_os = "macos")]
 pub use macos::{list_microphones, list_sources, Recording};
 
 #[cfg(not(target_os = "macos"))]
@@ -73,10 +75,11 @@ pub fn new_output_path(dir: Option<&Path>) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("No se pudo crear la carpeta {}: {e}", dir.display()))?;
     let stamp = chrono::Local::now().format("%Y-%m-%d %H.%M.%S");
-    let mut path = dir.join(format!("Grabación {stamp}.mp4"));
+    let mut path = dir.join(format!("Grabación {stamp}.mov"));
     let mut n = 2;
-    while path.exists() {
-        path = dir.join(format!("Grabación {stamp} ({n}).mp4"));
+    // Se graba a .mov y al terminar se convierte a .mp4: ninguno debe existir.
+    while path.exists() || path.with_extension("mp4").exists() {
+        path = dir.join(format!("Grabación {stamp} ({n}).mov"));
         n += 1;
     }
     Ok(path)

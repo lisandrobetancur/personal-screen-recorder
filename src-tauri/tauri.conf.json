@@ -38,7 +38,8 @@
     "shortDescription": "Grabador de pantalla y audio",
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "signingIdentity": "-"
+      "signingIdentity": "PSR Desarrollo",
+      "entitlements": "./Entitlements.plist"
     }
   }
 }

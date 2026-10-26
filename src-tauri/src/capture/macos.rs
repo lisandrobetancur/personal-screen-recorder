@@ -1,8 +1,10 @@
 //! Motor de macOS: ScreenCaptureKit captura pantalla, audio del sistema y
 //! micrófono; AVAssetWriter codifica por hardware (VideoToolbox) a MP4.
 //!
-//! El MP4 se escribe fragmentado cada pocos segundos: si la app se cierra de
-//! golpe, el archivo sigue siendo reproducible hasta el último fragmento.
+//! Se graba a un .mov fragmentado cada pocos segundos: si la app se cierra de
+//! golpe, el archivo sigue siendo reproducible hasta el último fragmento. Al
+//! detener, se copia a .mp4 sin recomprimir. (Escribir el MP4 fragmentado
+//! directamente fallaba al cerrarlo ~1 de cada 17 veces, error -16341.)
 
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
@@ -12,21 +14,26 @@ use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::AnyThread;
+use objc2::runtime::Bool;
 use objc2_av_foundation::{
-    AVAssetWriter, AVAssetWriterInput, AVAssetWriterStatus, AVFileTypeMPEG4, AVMediaTypeAudio,
+    AVAssetWriter, AVAuthorizationStatus, AVCaptureDevice, AVAssetWriterInput, AVAssetWriterStatus, AVAssetExportPresetPassthrough, AVAssetExportSession, AVAssetExportSessionStatus, AVFileTypeMPEG4, AVFileTypeQuickTimeMovie, AVURLAsset, AVMediaTypeAudio,
     AVMediaTypeVideo, AVVideoAverageBitRateKey, AVVideoCodecKey, AVVideoCodecTypeH264,
     AVVideoCodecTypeHEVC, AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey,
     AVVideoHeightKey, AVVideoMaxKeyFrameIntervalKey, AVVideoProfileLevelH264HighAutoLevel,
     AVVideoProfileLevelKey, AVVideoWidthKey,
 };
 use objc2_core_media::{CMSampleBuffer as RawSampleBuffer, CMTime};
-use objc2_foundation::{NSDictionary, NSNumber, NSOperatingSystemVersion, NSProcessInfo, NSString, NSURL};
+use objc2_foundation::{
+    NSDictionary, NSError, NSNumber, NSOperatingSystemVersion, NSProcessInfo, NSString, NSUnderlyingErrorKey,
+    NSURL,
+};
 use screencapturekit::cm::SCFrameStatus;
 use screencapturekit::prelude::*;
 
+use super::macos_audio::{AudioConformer, OUTPUT_RATE};
 use super::{Microphone, RecordOptions, Source, SourceKind};
 
-const SAMPLE_RATE: u32 = 48_000;
+const SAMPLE_RATE: u32 = OUTPUT_RATE;
 const SYSTEM_AUDIO_BITRATE: i32 = 320_000;
 const MICROPHONE_BITRATE: i32 = 192_000;
 /// Cada cuánto se cierra un fragmento del MP4 (lo máximo que se pierde ante un corte).
@@ -98,6 +105,9 @@ impl Recording {
         if options.microphone && !supports_microphone() {
             return Err("Grabar el micrófono requiere macOS 15 o superior.".into());
         }
+        if options.microphone {
+            ensure_microphone_access()?;
+        }
 
         let content = shareable_content()?;
         let (filter, width, height) = build_filter(&content, options)?;
@@ -163,17 +173,78 @@ impl Recording {
         let _ = self.stream.stop_capture();
         let mut writer = self.writer.lock().map_err(|_| "El grabador quedó en mal estado.")?;
         writer.finish()?;
-        Ok(self.path)
+        // Si la copia a MP4 falla, se conserva el .mov: la grabación no se pierde.
+        Ok(convert_to_mp4(&self.path).unwrap_or(self.path))
+    }
+}
+
+/// Copia el .mov a un .mp4 al lado (mismas pistas, sin recomprimir) y
+/// borra el .mov.
+fn convert_to_mp4(mov: &std::path::Path) -> Result<PathBuf, String> {
+    let mp4 = mov.with_extension("mp4");
+    let source = NSURL::from_file_path(mov).ok_or("Ruta inválida.")?;
+    let target = NSURL::from_file_path(&mp4).ok_or("Ruta inválida.")?;
+    let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&source, None) };
+    let session = unsafe {
+        AVAssetExportSession::exportSessionWithAsset_presetName(&asset, AVAssetExportPresetPassthrough)
+    }
+    .ok_or("No se pudo preparar la conversión a MP4.")?;
+    unsafe {
+        session.setOutputURL(Some(&target));
+        session.setOutputFileType(Some(constant(AVFileTypeMPEG4)));
+        session.setShouldOptimizeForNetworkUse(true);
+    }
+
+    let (tx, rx) = mpsc::channel();
+    let handler = RcBlock::new(move || {
+        let _ = tx.send(());
+    });
+    unsafe { session.exportAsynchronouslyWithCompletionHandler(&handler) };
+    // Solo copia datos: incluso horas de grabación tardan segundos.
+    rx.recv_timeout(Duration::from_secs(600)).map_err(|_| "La conversión a MP4 tardó demasiado.")?;
+
+    if unsafe { session.status() } == AVAssetExportSessionStatus::Completed {
+        let _ = std::fs::remove_file(mov);
+        Ok(mp4)
+    } else {
+        let _ = std::fs::remove_file(&mp4);
+        Err(unsafe { session.error() }.map(|e| describe_error(&e)).unwrap_or_default())
     }
 }
 
 struct Writer {
     writer: Retained<AVAssetWriter>,
     video: Retained<AVAssetWriterInput>,
-    system_audio: Option<Retained<AVAssetWriterInput>>,
-    microphone: Option<Retained<AVAssetWriterInput>>,
+    system_audio: Option<AudioTrack>,
+    microphone: Option<AudioTrack>,
     session_started: bool,
+    /// Fin del último cuadro de video, donde se cierra la grabación.
+    session_end: Option<CMTime>,
     done: bool,
+    /// Primer búfer que el codificador rechazó, con contexto para diagnosticar.
+    first_failure: Option<String>,
+}
+
+struct AudioTrack {
+    input: Retained<AVAssetWriterInput>,
+    conformer: AudioConformer,
+    label: &'static str,
+}
+
+impl AudioTrack {
+    fn new(channels: usize, bitrate: i32, label: &'static str) -> Result<Self, String> {
+        Ok(Self {
+            input: new_input(constant(unsafe { AVMediaTypeAudio }), &audio_settings(channels as u32, bitrate)),
+            conformer: AudioConformer::new(channels)?,
+            label,
+        })
+    }
+
+    /// `false` solo si el codificador rechazó el búfer; si no estaba listo,
+    /// el búfer se descarta (en tiempo real no se puede esperar).
+    fn append(&self, buffer: &RawSampleBuffer) -> bool {
+        unsafe { !self.input.isReadyForMoreMediaData() || self.input.appendSampleBuffer(buffer) }
+    }
 }
 
 // SAFETY: el escritor y sus entradas solo se usan detrás del Mutex de
@@ -191,7 +262,7 @@ impl Writer {
     ) -> Result<Self, String> {
         let url = NSURL::from_file_path(path).ok_or("Ruta de salida inválida.")?;
         let writer = unsafe {
-            AVAssetWriter::assetWriterWithURL_fileType_error(&url, constant(AVFileTypeMPEG4))
+            AVAssetWriter::assetWriterWithURL_fileType_error(&url, constant(AVFileTypeQuickTimeMovie))
         }
         .map_err(|e| format!("No se pudo crear el archivo: {}", e.localizedDescription()))?;
 
@@ -203,11 +274,13 @@ impl Writer {
 
         let video = new_input(constant(unsafe { AVMediaTypeVideo }), &video_settings(width, height, fps));
         let system_audio = system_audio
-            .then(|| new_input(constant(unsafe { AVMediaTypeAudio }), &audio_settings(2, SYSTEM_AUDIO_BITRATE)));
-        let microphone = microphone
-            .then(|| new_input(constant(unsafe { AVMediaTypeAudio }), &audio_settings(1, MICROPHONE_BITRATE)));
+            .then(|| AudioTrack::new(2, SYSTEM_AUDIO_BITRATE, "audio del sistema"))
+            .transpose()?;
+        let microphone =
+            microphone.then(|| AudioTrack::new(1, MICROPHONE_BITRATE, "micrófono")).transpose()?;
 
-        for input in [Some(&video), system_audio.as_ref(), microphone.as_ref()].into_iter().flatten() {
+        let inputs = [Some(&video), system_audio.as_ref().map(|t| &t.input), microphone.as_ref().map(|t| &t.input)];
+        for input in inputs.into_iter().flatten() {
             unsafe {
                 if !writer.canAddInput(input) {
                     return Err("El formato de grabación no es compatible con este equipo.".into());
@@ -220,7 +293,16 @@ impl Writer {
             return Err(format!("No se pudo empezar a escribir: {}", writer_error(&writer)));
         }
 
-        Ok(Self { writer, video, system_audio, microphone, session_started: false, done: false })
+        Ok(Self {
+            writer,
+            video,
+            system_audio,
+            microphone,
+            session_started: false,
+            session_end: None,
+            done: false,
+            first_failure: None,
+        })
     }
 
     fn append(&mut self, sample: &CMSampleBuffer, kind: SCStreamOutputType) {
@@ -230,34 +312,72 @@ impl Writer {
         // SAFETY: es el mismo CMSampleBufferRef, prestado mientras dura la llamada.
         let raw = unsafe { &*(sample.as_ptr() as *const RawSampleBuffer) };
 
-        let input = match kind {
-            SCStreamOutputType::Screen => {
-                // Los cuadros "Idle" no traen imagen: la pantalla no cambió.
-                if sample.frame_status() != Some(SCFrameStatus::Complete) {
-                    return;
-                }
-                if !self.session_started {
-                    unsafe { self.writer.startSessionAtSourceTime(raw.presentation_time_stamp()) };
-                    self.session_started = true;
-                }
-                &self.video
+        if kind == SCStreamOutputType::Screen {
+            // Los cuadros "Idle" no traen imagen: la pantalla no cambió.
+            if sample.frame_status() != Some(SCFrameStatus::Complete) {
+                return;
             }
-            // El audio que llega antes del primer cuadro se descarta.
-            _ if !self.session_started => return,
-            SCStreamOutputType::Audio => match &self.system_audio {
-                Some(i) => i,
-                None => return,
-            },
-            SCStreamOutputType::Microphone => match &self.microphone {
-                Some(i) => i,
-                None => return,
-            },
-        };
+            let pts = unsafe { raw.presentation_time_stamp() };
+            let seconds = unsafe { pts.seconds() };
+            if !self.session_started {
+                unsafe { self.writer.startSessionAtSourceTime(pts) };
+                self.session_started = true;
+                for track in [self.system_audio.as_mut(), self.microphone.as_mut()].into_iter().flatten() {
+                    track.conformer.start_at(seconds);
+                }
+            }
+            if unsafe { self.video.isReadyForMoreMediaData() } {
+                if unsafe { self.video.appendSampleBuffer(raw) } {
+                    let duration = unsafe { raw.duration() };
+                    let frame = if unsafe { duration.seconds() } > 0.0 { duration } else { unsafe { CMTime::new(1, 60) } };
+                    self.session_end = Some(unsafe { pts.add(frame) });
+                } else {
+                    self.note_failure("video", String::new());
+                }
+            }
+            self.pad_audio(seconds);
+            return;
+        }
 
-        unsafe {
-            if input.isReadyForMoreMediaData() {
-                input.appendSampleBuffer(raw);
+        // El audio que llega antes del primer cuadro se descarta.
+        if !self.session_started {
+            return;
+        }
+        let track = match kind {
+            SCStreamOutputType::Audio => self.system_audio.as_mut(),
+            _ => self.microphone.as_mut(),
+        };
+        let Some(track) = track else { return };
+        let Some(converted) = track.conformer.convert(sample) else { return };
+        if !track.append(&converted) {
+            let (label, format) = (track.label, track.conformer.source_format.clone());
+            self.note_failure(label, format);
+        }
+    }
+
+    /// Mantiene cada pista de audio a la par del video rellenando con
+    /// silencio cuando no llega sonido: un MP4 fragmentado con fragmentos sin
+    /// audio hace fallar al codificador, y además se perdería la sincronía.
+    fn pad_audio(&mut self, video_seconds: f64) {
+        const MAX_AUDIO_LAG_SECONDS: f64 = 0.5;
+        let mut failed = None;
+        for track in [self.system_audio.as_mut(), self.microphone.as_mut()].into_iter().flatten() {
+            while let Some(silence) = track.conformer.silence_until(video_seconds - MAX_AUDIO_LAG_SECONDS) {
+                if !track.append(&silence) {
+                    failed = Some(track.label);
+                    break;
+                }
             }
+        }
+        if let Some(label) = failed {
+            self.note_failure(label, "silencio de relleno".into());
+        }
+    }
+
+    fn note_failure(&mut self, track: &str, source_format: String) {
+        if self.first_failure.is_none() {
+            let format = if source_format.is_empty() { String::new() } else { format!(" (entrada: {source_format})") };
+            self.first_failure = Some(format!("pista de {track}{format}: {}", writer_error(&self.writer)));
         }
     }
 
@@ -271,11 +391,18 @@ impl Writer {
             return Err("No se recibió ninguna imagen de la fuente; no se guardó el archivo.".into());
         }
 
-        for input in [Some(&self.video), self.system_audio.as_ref(), self.microphone.as_ref()]
-            .into_iter()
-            .flatten()
-        {
+        let inputs = [
+            Some(&self.video),
+            self.system_audio.as_ref().map(|t| &t.input),
+            self.microphone.as_ref().map(|t| &t.input),
+        ];
+        for input in inputs.into_iter().flatten() {
             unsafe { input.markAsFinished() };
+        }
+        // Sin un fin explícito, las pistas de audio terminan en otro momento que
+        // el video y el cierre del MP4 fragmentado falla a veces (-16341).
+        if let Some(end) = self.session_end {
+            unsafe { self.writer.endSessionAtSourceTime(end) };
         }
 
         let (tx, rx) = mpsc::channel();
@@ -288,7 +415,10 @@ impl Writer {
 
         match unsafe { self.writer.status() } {
             AVAssetWriterStatus::Completed => Ok(()),
-            _ => Err(format!("La grabación falló: {}", writer_error(&self.writer))),
+            _ => Err(format!(
+                "La grabación falló en la {}",
+                self.first_failure.clone().unwrap_or_else(|| writer_error(&self.writer))
+            )),
         }
     }
 
@@ -298,7 +428,20 @@ impl Writer {
     }
 }
 
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
 fn shareable_content() -> Result<SCShareableContent, String> {
+    // ScreenCaptureKit no muestra el aviso del sistema: sin esto, una app sin
+    // permiso ni siquiera aparece en Ajustes para poder activarla.
+    unsafe {
+        if !CGPreflightScreenCaptureAccess() {
+            CGRequestScreenCaptureAccess();
+        }
+    }
     SCShareableContent::get()
         .map_err(|e| format!("No hay acceso a la pantalla ({e}). {PERMISSION_HINT}"))
 }
@@ -429,6 +572,30 @@ fn new_input(
     }
 }
 
+/// ScreenCaptureKit no pide el permiso de micrófono: si falta, falla con un
+/// mensaje engañoso sobre la pantalla. Por eso se pide aquí antes de empezar.
+fn ensure_microphone_access() -> Result<(), String> {
+    const DENIED: &str = "No hay permiso para usar el micrófono. Actívalo en Ajustes del Sistema → \
+         Privacidad y seguridad → Micrófono, o graba sin micrófono.";
+    let audio = constant(unsafe { AVMediaTypeAudio });
+    match unsafe { AVCaptureDevice::authorizationStatusForMediaType(audio) } {
+        AVAuthorizationStatus::Authorized => Ok(()),
+        AVAuthorizationStatus::NotDetermined => {
+            let (tx, rx) = mpsc::channel();
+            let handler = RcBlock::new(move |granted: Bool| {
+                let _ = tx.send(granted.as_bool());
+            });
+            unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &handler) };
+            // Espera a que la persona responda el aviso del sistema.
+            match rx.recv_timeout(Duration::from_secs(300)) {
+                Ok(true) => Ok(()),
+                _ => Err(DENIED.into()),
+            }
+        }
+        _ => Err(DENIED.into()),
+    }
+}
+
 fn supports_microphone() -> bool {
     NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(NSOperatingSystemVersion {
         majorVersion: 15,
@@ -439,9 +606,20 @@ fn supports_microphone() -> bool {
 
 fn writer_error(writer: &AVAssetWriter) -> String {
     unsafe { writer.error() }
-        // El detalle (dominio, código y error de fondo) sirve para diagnosticar.
-        .map(|e| format!("{} [{e:?}]", e.localizedDescription()))
+        .map(|e| describe_error(&e))
         .unwrap_or_else(|| "error desconocido".into())
+}
+
+/// Mensaje, dominio y código del error y de sus errores de fondo, que es
+/// donde AVFoundation deja la causa real.
+fn describe_error(error: &NSError) -> String {
+    let mut text = format!("{} ({} {})", error.localizedDescription(), error.domain(), error.code());
+    let key = unsafe { NSUnderlyingErrorKey };
+    if let Some(inner) = error.userInfo().objectForKey(key).and_then(|o| o.downcast::<NSError>().ok()) {
+        text.push_str(" ← ");
+        text.push_str(&describe_error(&inner));
+    }
+    text
 }
 
 fn constant(value: Option<&'static NSString>) -> &'static NSString {

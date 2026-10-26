@@ -20,9 +20,12 @@ Rust + Tauri 2.
 
 - **MP4**, video **H.264** por hardware (HEVC si la fuente supera 4096×2304).
 - **Audio AAC 48 kHz**: audio del sistema en estéreo a 320 kbps y micrófono a 192 kbps,
-  cada uno en **su propia pista**.
-- Se escribe **fragmentado cada 2 s**: si la app se cierra de golpe, el archivo sigue
-  sirviendo hasta el último fragmento.
+  cada uno en **su propia pista**. Antes de codificar, todo el audio se lleva a 48 kHz
+  con tiempos continuos (los audífonos Bluetooth cambian de formato al activar el
+  micrófono) y, si no suena nada, la pista se rellena con silencio.
+- Mientras graba se escribe un **.mov fragmentado cada 2 s**: si la app se cierra de
+  golpe, ese archivo sigue sirviendo hasta el último fragmento. Al detener se copia a
+  **.mp4 sin recomprimir** (segundos) y se borra el .mov. Si la copia fallara, queda el .mov.
 - Se guarda en `~/Movies/Personal Screen Recorder` (Mac) o `Videos\Personal Screen Recorder` (Windows).
 
 ## Desarrollo
@@ -45,12 +48,23 @@ open -n -W --stdout /tmp/prueba.txt "src-tauri/target/release/bundle/macos/Perso
 Revisar el diseño en un navegador común, con datos de ejemplo: `pnpm dev` y abrir
 http://localhost:1420.
 
-### Permisos en macOS
+### Firma y permisos en macOS
 
-La primera vez, macOS pide **Grabación de pantalla y audio del sistema** y **Micrófono**.
-Se activan en Ajustes del Sistema → Privacidad y seguridad, y luego hay que reabrir la app.
-El permiso se concede a la app (o a la terminal desde la que corre `tauri dev`). Como la
-app tiene una firma local (ad-hoc), al recompilarla macOS puede volver a pedirlo.
+La app se firma con el certificado local **«PSR Desarrollo»** (Acceso a Llaveros →
+Asistente para certificados → Crear un certificado: raíz autofirmada, tipo *Firma de
+código*). Con una firma estable, macOS conserva los permisos entre compilaciones; con
+la firma provisional (ad-hoc) los pedía de nuevo cada vez.
+
+La primera vez la app pide **Grabación de pantalla y audio del sistema** y, al grabar
+con micrófono, **Micrófono**. Tras conceder el de pantalla hay que reabrir la app. Para
+empezar de cero con el permiso de pantalla:
+
+```bash
+tccutil reset ScreenCapture com.co.personal-screen-recorder
+```
+
+`src-tauri/Entitlements.plist` declara micrófono y cámara: con *hardened runtime*, sin
+eso macOS los niega sin mostrar aviso.
 
 ## Estructura
 
