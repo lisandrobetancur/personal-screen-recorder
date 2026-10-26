@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-theme",
+    "core:window:allow-set-size",
     "opener:default",
     "opener:allow-reveal-item-in-dir",
     "dialog:allow-open"

@@ -15,9 +15,9 @@
       {
         "title": "Personal Screen Recorder",
         "width": 460,
-        "height": 760,
+        "height": 560,
         "minWidth": 400,
-        "minHeight": 560
+        "minHeight": 360
       }
     ],
     "security": {

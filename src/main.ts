@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { mockInvoke, mockPickFolder } from "./mock";
@@ -113,6 +113,33 @@ function updateSummaries() {
   const audio = [els.systemAudio.checked && "Sistema", els.microphone.checked && "Micrófono"].filter(Boolean);
   setSummary("audio", audio.length ? audio.join(" + ") : "Sin audio");
   setSummary("video", `${state.fps} fps`);
+}
+
+// ---------- Alto de la ventana ----------
+
+/** Alto que necesita el contenido, sin espacio vacío al plegar secciones. */
+function contentHeight() {
+  const main = document.querySelector("main")!;
+  const visible = [...main.children].filter((el) => (el as HTMLElement).offsetParent !== null) as HTMLElement[];
+  const last = visible[visible.length - 1];
+  const padding = parseFloat(getComputedStyle(main).paddingBottom);
+  const mainHeight = last ? last.offsetTop + last.offsetHeight + padding - main.offsetTop : 0;
+  return document.querySelector<HTMLElement>(".topbar")!.offsetHeight + mainHeight + $(".dock").offsetHeight;
+}
+
+let fitPending = false;
+
+/** Ajusta el alto de la ventana al contenido (el ancho lo decide la persona). */
+function fitWindow() {
+  if (!isTauri() || fitPending) return;
+  fitPending = true;
+  requestAnimationFrame(() => {
+    fitPending = false;
+    const height = Math.min(Math.ceil(contentHeight()), screen.availHeight - 40);
+    if (Math.abs(height - window.innerHeight) > 1) {
+      getCurrentWindow().setSize(new LogicalSize(window.innerWidth, height)).catch(() => {});
+    }
+  });
 }
 
 // ---------- Fuentes ----------
@@ -344,4 +371,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   showOutputDir(await invoke<string>("get_output_dir"));
   await Promise.all([loadSources(), loadMicrophones()]);
+
+  // Cada cambio de tamaño del contenido (secciones que se abren o pliegan,
+  // mensajes, la tarjeta de la última grabación) reajusta la ventana.
+  const observer = new ResizeObserver(fitWindow);
+  for (const el of [...document.querySelector("main")!.children, $(".dock")]) observer.observe(el);
+  fitWindow();
 });
