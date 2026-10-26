@@ -129,16 +129,31 @@ function contentHeight() {
 }
 
 let fitPending = false;
+/** Alto de la ventana que no es contenido (en Mac, la barra de título). Se mide solo. */
+let chromeHeight = 0;
 
 /** Ajusta el alto de la ventana al contenido (el ancho lo decide la persona). */
 function fitWindow() {
   if (!isTauri() || fitPending) return;
   fitPending = true;
-  requestAnimationFrame(() => {
-    fitPending = false;
-    const height = Math.min(Math.ceil(contentHeight()), screen.availHeight - 40);
-    if (Math.abs(height - window.innerHeight) > 1) {
-      getCurrentWindow().setSize(new LogicalSize(window.innerWidth, height)).catch(() => {});
+  requestAnimationFrame(async () => {
+    try {
+      // Dos pasadas como máximo: la segunda corrige la barra de título.
+      for (let pass = 0; pass < 2; pass++) {
+        const needed = Math.min(Math.ceil(contentHeight()), screen.availHeight - 40);
+        const missing = needed - window.innerHeight;
+        if (Math.abs(missing) <= 1) break;
+        const requested = needed + chromeHeight;
+        await getCurrentWindow().setSize(new LogicalSize(window.innerWidth, requested));
+        await new Promise((r) => setTimeout(r, 50));
+        // Lo que faltó tras pedir `requested` es lo que ocupa la ventana fuera del contenido.
+        const shortfall = needed - window.innerHeight;
+        if (shortfall > 0 && shortfall < 100) chromeHeight += shortfall;
+      }
+    } catch {
+      // Si no se puede cambiar el tamaño, la ventana queda como está y main se desplaza.
+    } finally {
+      fitPending = false;
     }
   });
 }
