@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use super::health::HealthReport;
 use super::{Microphone, RecordOptions, Source};
 
 fn pending() -> String {
@@ -25,6 +26,10 @@ pub struct Recording;
 impl Recording {
     pub fn start(_options: &RecordOptions, _path: PathBuf) -> Result<Self, String> {
         Err(pending())
+    }
+
+    pub fn health(&self) -> HealthReport {
+        super::health::Health::default().report()
     }
 
     pub fn stop(self) -> Result<PathBuf, String> {

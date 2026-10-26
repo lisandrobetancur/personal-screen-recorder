@@ -18,8 +18,24 @@ export async function mockPickFolder(): Promise<string> {
   return "/Users/demo/Documents/Clases grabadas";
 }
 
+// Grabación simulada: el micrófono nunca suena y el sistema suena desde los 8 s.
+let mockStarted = 0;
+function mockHealth() {
+  const elapsedSecs = (Date.now() - mockStarted) / 1000;
+  return {
+    elapsedSecs,
+    systemHeard: elapsedSecs > 8,
+    systemSilentSecs: elapsedSecs > 8 ? 0 : elapsedSecs,
+    microphoneHeard: false,
+    microphoneSilentSecs: elapsedSecs,
+    blackSecs: 0,
+  };
+}
+
 export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 150));
+  if (cmd === "start_recording") mockStarted = Date.now();
+  if (cmd === "recording_health") return mockHealth() as T;
   const results: Record<string, unknown> = {
     // En el navegador se puede probar el inglés con ?lang=en.
     get_language: new URLSearchParams(location.search).get("lang") ?? "es",

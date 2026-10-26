@@ -22,7 +22,8 @@ use objc2_av_foundation::{
     AVVideoHeightKey, AVVideoMaxKeyFrameIntervalKey, AVVideoProfileLevelH264HighAutoLevel,
     AVVideoProfileLevelKey, AVVideoWidthKey,
 };
-use objc2_core_media::{CMSampleBuffer as RawSampleBuffer, CMTime};
+use objc2_core_foundation::CFRetained;
+use objc2_core_media::{kCMTimeInvalid, CMClock, CMSampleBuffer as RawSampleBuffer, CMSampleTimingInfo, CMTime};
 use objc2_foundation::{
     NSDictionary, NSError, NSNumber, NSOperatingSystemVersion, NSProcessInfo, NSString, NSUnderlyingErrorKey,
     NSURL,
@@ -30,6 +31,7 @@ use objc2_foundation::{
 use screencapturekit::cm::SCFrameStatus;
 use screencapturekit::prelude::*;
 
+use super::health::{AudioSource, Health, HealthReport, BLACK_CHECK_WINDOW_SECS};
 use super::macos_audio::{AudioConformer, OUTPUT_RATE};
 use super::{Microphone, RecordOptions, Source, SourceKind};
 
@@ -103,6 +105,9 @@ pub fn list_microphones() -> Vec<Microphone> {
 pub struct Recording {
     stream: SCStream,
     writer: Arc<Mutex<Writer>>,
+    health: Arc<Health>,
+    /// Hilo que mantiene el audio al día aunque la pantalla no cambie.
+    ticker: Option<(Arc<std::sync::atomic::AtomicBool>, std::thread::JoinHandle<()>)>,
     path: PathBuf,
 }
 
@@ -143,7 +148,8 @@ impl Recording {
             }
         }
 
-        let writer = Writer::new(&path, width, height, fps, options.system_audio, options.microphone)?;
+        let health = Arc::new(Health::default());
+        let writer = Writer::new(&path, width, height, fps, options.system_audio, options.microphone, Arc::clone(&health))?;
         let writer = Arc::new(Mutex::new(writer));
 
         let mut stream = SCStream::new(&filter, &config).map_err(sc_error)?;
@@ -179,10 +185,20 @@ impl Recording {
             ));
         }
 
-        Ok(Self { stream, writer, path })
+        health.start();
+        let ticker = Some(start_ticker(Arc::clone(&writer)));
+        Ok(Self { stream, writer, health, ticker, path })
     }
 
-    pub fn stop(self) -> Result<PathBuf, String> {
+    pub fn health(&self) -> HealthReport {
+        self.health.report()
+    }
+
+    pub fn stop(mut self) -> Result<PathBuf, String> {
+        if let Some((stop, thread)) = self.ticker.take() {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            let _ = thread.join();
+        }
         // Si la fuente desapareció (ventana cerrada), la captura ya se detuvo sola.
         let _ = self.stream.stop_capture();
         let mut writer = self.writer.lock().map_err(|_| tr!("El grabador quedó en mal estado.", "The recorder is in a bad state."))?;
@@ -191,6 +207,38 @@ impl Recording {
         Ok(convert_to_mp4(&self.path).unwrap_or(self.path))
     }
 }
+
+/// ScreenCaptureKit solo entrega cuadros cuando la pantalla cambia. Este hilo
+/// rellena el audio cada medio segundo según el reloj, para que una pantalla
+/// quieta no deje la grabación sin audio ni la corte antes de tiempo.
+fn start_ticker(writer: Arc<Mutex<Writer>>) -> (Arc<std::sync::atomic::AtomicBool>, std::thread::JoinHandle<()>) {
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let thread = std::thread::spawn(move || {
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(500));
+            if let Ok(mut w) = writer.lock() {
+                if w.session_started && !w.done {
+                    w.pad_audio(host_now_seconds() - MAX_AUDIO_LAG_SECONDS);
+                }
+            }
+        }
+    });
+    (stop, thread)
+}
+
+/// Hora actual en el reloj de ScreenCaptureKit (el del sistema).
+fn host_now() -> CMTime {
+    unsafe { CMClock::host_time_clock().time() }
+}
+
+fn host_now_seconds() -> f64 {
+    unsafe { host_now().seconds() }
+}
+
+/// Retraso máximo del audio respecto del reloj antes de rellenar con silencio
+/// (deja margen para que llegue el audio real, que viaja con algo de demora).
+const MAX_AUDIO_LAG_SECONDS: f64 = 0.5;
 
 /// Copia el .mov a un .mp4 al lado (mismas pistas, sin recomprimir) y
 /// borra el .mov.
@@ -234,23 +282,31 @@ struct Writer {
     session_started: bool,
     /// Fin del último cuadro de video, donde se cierra la grabación.
     session_end: Option<CMTime>,
+    /// Último cuadro escrito: al detener se repite en ese instante, para que
+    /// el video dure hasta el final aunque la pantalla no haya cambiado.
+    last_frame: Option<CFRetained<RawSampleBuffer>>,
     done: bool,
     /// Primer búfer que el codificador rechazó, con contexto para diagnosticar.
     first_failure: Option<String>,
+    health: Arc<Health>,
+    /// Última vez que se revisó si la imagen estaba negra (una vez por segundo).
+    last_black_check: Option<std::time::Instant>,
 }
 
 struct AudioTrack {
     input: Retained<AVAssetWriterInput>,
     conformer: AudioConformer,
     label: &'static str,
+    source: AudioSource,
 }
 
 impl AudioTrack {
-    fn new(channels: usize, bitrate: i32, label: &'static str) -> Result<Self, String> {
+    fn new(channels: usize, bitrate: i32, label: &'static str, source: AudioSource) -> Result<Self, String> {
         Ok(Self {
             input: new_input(constant(unsafe { AVMediaTypeAudio }), &audio_settings(channels as u32, bitrate)),
             conformer: AudioConformer::new(channels)?,
             label,
+            source,
         })
     }
 
@@ -273,6 +329,7 @@ impl Writer {
         fps: u32,
         system_audio: bool,
         microphone: bool,
+        health: Arc<Health>,
     ) -> Result<Self, String> {
         let url = NSURL::from_file_path(path).ok_or(tr!("Ruta de salida inválida.", "Invalid output path."))?;
         let writer = unsafe {
@@ -290,10 +347,10 @@ impl Writer {
 
         let video = new_input(constant(unsafe { AVMediaTypeVideo }), &video_settings(width, height, fps));
         let system_audio = system_audio
-            .then(|| AudioTrack::new(2, SYSTEM_AUDIO_BITRATE, tr!("audio del sistema", "system audio")))
+            .then(|| AudioTrack::new(2, SYSTEM_AUDIO_BITRATE, tr!("audio del sistema", "system audio"), AudioSource::System))
             .transpose()?;
         let microphone =
-            microphone.then(|| AudioTrack::new(1, MICROPHONE_BITRATE, tr!("micrófono", "microphone"))).transpose()?;
+            microphone.then(|| AudioTrack::new(1, MICROPHONE_BITRATE, tr!("micrófono", "microphone"), AudioSource::Microphone)).transpose()?;
 
         let inputs = [Some(&video), system_audio.as_ref().map(|t| &t.input), microphone.as_ref().map(|t| &t.input)];
         for input in inputs.into_iter().flatten() {
@@ -324,8 +381,11 @@ impl Writer {
             microphone,
             session_started: false,
             session_end: None,
+            last_frame: None,
             done: false,
             first_failure: None,
+            health,
+            last_black_check: None,
         })
     }
 
@@ -341,6 +401,7 @@ impl Writer {
             if sample.frame_status() != Some(SCFrameStatus::Complete) {
                 return;
             }
+            self.check_black(sample);
             let pts = unsafe { raw.presentation_time_stamp() };
             let seconds = unsafe { pts.seconds() };
             if !self.session_started {
@@ -355,11 +416,13 @@ impl Writer {
                     let duration = unsafe { raw.duration() };
                     let frame = if unsafe { duration.seconds() } > 0.0 { duration } else { unsafe { CMTime::new(1, 60) } };
                     self.session_end = Some(unsafe { pts.add(frame) });
+                    // SAFETY: `raw` es un CMSampleBuffer válido durante la llamada; se retiene.
+                    self.last_frame = Some(unsafe { CFRetained::retain(std::ptr::NonNull::from(raw)) });
                 } else {
                     self.note_failure(tr!("video", "video"), String::new());
                 }
             }
-            self.pad_audio(seconds);
+            self.pad_audio(seconds - MAX_AUDIO_LAG_SECONDS);
             return;
         }
 
@@ -372,21 +435,44 @@ impl Writer {
             _ => self.microphone.as_mut(),
         };
         let Some(track) = track else { return };
-        let Some(converted) = track.conformer.convert(sample) else { return };
+        let converted = track.conformer.convert(sample);
+        if track.conformer.last_had_sound {
+            self.health.heard(track.source);
+        }
+        let Some(converted) = converted else { return };
         if !track.append(&converted) {
             let (label, format) = (track.label, track.conformer.source_format.clone());
             self.note_failure(label, format);
         }
     }
 
+    /// Una vez por segundo, y solo al empezar, revisa si la imagen está
+    /// completamente negra (contenido protegido o fuente equivocada).
+    fn check_black(&mut self, sample: &CMSampleBuffer) {
+        let now = std::time::Instant::now();
+        if self.last_black_check.is_some_and(|t| now.duration_since(t).as_secs_f64() < 1.0)
+            || self.health.elapsed_secs() > BLACK_CHECK_WINDOW_SECS
+        {
+            return;
+        }
+        self.last_black_check = Some(now);
+        let Some(pixels) = sample.pixel_buffer() else { return };
+        let Ok(guard) = pixels.lock_read_only() else { return };
+        // Formato 420v: el plano 0 es la luminancia, y el negro vale 16.
+        let Some(base) = guard.base_address_of_plane(0) else { return };
+        let (width, height, row) = (guard.width_of_plane(0), guard.height_of_plane(0), guard.bytes_per_row_of_plane(0));
+        // SAFETY: el plano está bloqueado y mide `row * height` bytes.
+        let luma = unsafe { std::slice::from_raw_parts(base, row * height) };
+        self.health.frame(super::health::is_black(luma, width, height, row, 1, 24));
+    }
+
     /// Mantiene cada pista de audio a la par del video rellenando con
     /// silencio cuando no llega sonido: un MP4 fragmentado con fragmentos sin
     /// audio hace fallar al codificador, y además se perdería la sincronía.
-    fn pad_audio(&mut self, video_seconds: f64) {
-        const MAX_AUDIO_LAG_SECONDS: f64 = 0.5;
+    fn pad_audio(&mut self, until_seconds: f64) {
         let mut failed = None;
         for track in [self.system_audio.as_mut(), self.microphone.as_mut()].into_iter().flatten() {
-            while let Some(silence) = track.conformer.silence_until(video_seconds - MAX_AUDIO_LAG_SECONDS) {
+            while let Some(silence) = track.conformer.silence_until(until_seconds) {
                 if !track.append(&silence) {
                     failed = Some(track.label);
                     break;
@@ -420,6 +506,11 @@ impl Writer {
             .into());
         }
 
+        // La grabación termina ahora, no en el último cambio de pantalla.
+        let end = host_now();
+        self.pad_audio(unsafe { end.seconds() });
+        self.repeat_last_frame_at(end);
+
         let inputs = [
             Some(&self.video),
             self.system_audio.as_ref().map(|t| &t.input),
@@ -449,6 +540,35 @@ impl Writer {
                 tr!("La grabación falló en la", "Recording failed on the"),
                 self.first_failure.clone().unwrap_or_else(|| writer_error(&self.writer))
             )),
+        }
+    }
+
+    /// Repite el último cuadro en `at`, para que el video llegue hasta el final.
+    fn repeat_last_frame_at(&mut self, at: CMTime) {
+        let Some(last) = self.last_frame.take() else { return };
+        if unsafe { at.seconds() <= last.presentation_time_stamp().seconds() } {
+            return;
+        }
+        let timing = CMSampleTimingInfo {
+            duration: unsafe { kCMTimeInvalid },
+            presentationTimeStamp: at,
+            decodeTimeStamp: unsafe { kCMTimeInvalid },
+        };
+        let mut copy: *mut RawSampleBuffer = std::ptr::null_mut();
+        let status = unsafe {
+            RawSampleBuffer::create_copy_with_new_timing(None, &last, 1, &timing, std::ptr::NonNull::from(&mut copy))
+        };
+        let Some(copy) = std::ptr::NonNull::new(copy).filter(|_| status == 0) else { return };
+        let copy = unsafe { CFRetained::from_raw(copy) };
+        // Al final el codificador puede tardar un instante en aceptar más.
+        for _ in 0..100 {
+            if unsafe { self.video.isReadyForMoreMediaData() } {
+                if unsafe { self.video.appendSampleBuffer(&copy) } {
+                    self.session_end = Some(at);
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 

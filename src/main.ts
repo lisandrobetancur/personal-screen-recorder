@@ -1,9 +1,11 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { setLanguage, t, translatePage } from "./i18n";
 import { mockInvoke, mockPickFolder } from "./mock";
+import { type Check, type HealthReport, Watchdog } from "./watchdog";
 
 const preview = !isTauri() && import.meta.env.DEV;
 const invoke = (preview ? mockInvoke : tauriInvoke) as typeof tauriInvoke;
@@ -51,6 +53,11 @@ const els = {
   lastName: $<HTMLSpanElement>("#last-name"),
   lastMeta: $<HTMLElement>("#last-meta"),
   reveal: $<HTMLButtonElement>("#reveal"),
+  alert: $<HTMLDivElement>("#alert"),
+  alertTitle: $<HTMLElement>("#alert-title"),
+  alertText: $<HTMLElement>("#alert-text"),
+  alertReal: $<HTMLButtonElement>("#alert-real"),
+  alertStop: $<HTMLButtonElement>("#alert-stop"),
 };
 
 const state = {
@@ -64,6 +71,9 @@ const state = {
   timerId: 0,
   outputDir: "",
   lastPath: "",
+  watchdog: null as Watchdog | null,
+  watchId: 0,
+  lastHealth: null as HealthReport | null,
 };
 
 // ---------- Tema ----------
@@ -293,6 +303,61 @@ async function changeOutputDir() {
   }
 }
 
+// ---------- Avisos de grabación vacía ----------
+
+const alertTexts: Record<Check, ["alert.blackTitle" | "alert.micTitle" | "alert.systemTitle", "alert.blackText" | "alert.micText" | "alert.systemText"]> = {
+  black: ["alert.blackTitle", "alert.blackText"],
+  microphone: ["alert.micTitle", "alert.micText"],
+  system: ["alert.systemTitle", "alert.systemText"],
+};
+
+function startWatching() {
+  state.watchdog = new Watchdog({ system: els.systemAudio.checked, microphone: els.microphone.checked });
+  state.watchId = window.setInterval(checkHealth, 1000);
+}
+
+function stopWatching() {
+  window.clearInterval(state.watchId);
+  state.watchdog = null;
+  showAlert(null);
+}
+
+async function checkHealth() {
+  const watchdog = state.watchdog;
+  if (!watchdog) return;
+  const report = await invoke<HealthReport | null>("recording_health").catch(() => null);
+  if (!report || state.watchdog !== watchdog) return;
+  state.lastHealth = report;
+  const before = watchdog.question;
+  const question = watchdog.update(report);
+  if (question !== before) {
+    showAlert(question);
+    if (question) notify(question);
+  }
+}
+
+function showAlert(question: Check | null) {
+  els.alert.hidden = !question;
+  if (!question) return;
+  const [title, text] = alertTexts[question];
+  els.alertTitle.textContent = t(title);
+  els.alertText.textContent = t(text);
+}
+
+/** Notificación del sistema: mientras se graba, la ventana suele estar detrás. */
+async function notify(question: Check) {
+  if (preview) return;
+  const [title, text] = alertTexts[question];
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) granted = (await requestPermission()) === "granted";
+    if (granted) sendNotification({ title: t(title), body: t(text) });
+  } catch {
+    // Sin notificaciones queda el aviso dentro de la app.
+  }
+  getCurrentWindow().requestUserAttention(2).catch(() => {});
+}
+
 // ---------- Grabación ----------
 
 function formatElapsed(ms: number) {
@@ -328,9 +393,11 @@ async function toggleRecording() {
       state.timerId = window.setInterval(() => {
         els.timer.textContent = formatElapsed(Date.now() - state.startedAt);
       }, 250);
+      startWatching();
       setStatus(t("status.recording", { name: splitName(s).filter(Boolean).join(" — ") }));
     } else {
       window.clearInterval(state.timerId);
+      stopWatching();
       setStatus(t("status.savingFile"));
       const duration = els.timer.textContent;
       const path = await invoke<string>("stop_recording");
@@ -343,6 +410,7 @@ async function toggleRecording() {
     }
   } catch (e) {
     window.clearInterval(state.timerId);
+    stopWatching();
     state.recording = false;
     setStatus(String(e), true);
   } finally {
@@ -385,6 +453,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   els.refresh.addEventListener("click", loadSources);
   els.record.addEventListener("click", toggleRecording);
   els.changeDir.addEventListener("click", changeOutputDir);
+  els.alertReal.addEventListener("click", () => {
+    state.watchdog?.confirm(state.lastHealth?.elapsedSecs ?? 0);
+    showAlert(null);
+  });
+  els.alertStop.addEventListener("click", () => {
+    showAlert(null);
+    if (state.recording && !state.busy) toggleRecording();
+  });
   els.reveal.addEventListener("click", () => state.lastPath && !preview && revealItemInDir(state.lastPath));
 
   showOutputDir(await invoke<string>("get_output_dir"));

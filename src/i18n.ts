@@ -41,6 +41,14 @@ const es = {
   "status.recording": "Grabando: {name}",
   "status.savingFile": "Guardando el archivo…",
   "status.saved": "Grabación guardada.",
+  "alert.real": "Sí, es real",
+  "alert.stop": "Detener",
+  "alert.blackTitle": "La imagen está en negro",
+  "alert.blackText": "Puede ser contenido protegido o la pantalla equivocada. ¿Es negro de verdad?",
+  "alert.micTitle": "No llega sonido del micrófono",
+  "alert.micText": "Revisa que esté encendido y que sea el correcto. ¿Es silencio real?",
+  "alert.systemTitle": "No llega audio del sistema",
+  "alert.systemText": "Si todavía no suena nada, es normal. ¿Es silencio real?",
 };
 
 type Key = keyof typeof es;
@@ -85,6 +93,14 @@ const en: Record<Key, string> = {
   "status.recording": "Recording: {name}",
   "status.savingFile": "Saving the file…",
   "status.saved": "Recording saved.",
+  "alert.real": "Yes, it's real",
+  "alert.stop": "Stop",
+  "alert.blackTitle": "The image is black",
+  "alert.blackText": "It may be protected content or the wrong display. Is it really black?",
+  "alert.micTitle": "No sound from the microphone",
+  "alert.micText": "Check that it's on and that it's the right one. Is the silence real?",
+  "alert.systemTitle": "No system audio",
+  "alert.systemText": "If nothing is playing yet, that's normal. Is the silence real?",
 };
 
 let current: Record<Key, string> = es;

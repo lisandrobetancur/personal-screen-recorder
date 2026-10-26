@@ -7,6 +7,7 @@ mod settings;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use capture::health::HealthReport;
 use capture::{Microphone, RecordOptions, Recording, Source};
 use settings::Settings;
 use tauri::{AppHandle, Manager, State};
@@ -86,6 +87,12 @@ async fn start_recording(
     Ok(path)
 }
 
+/// Señales de grabación vacía (silencio digital, imagen negra); None si no se graba.
+#[tauri::command]
+fn recording_health(state: State<'_, AppState>) -> Option<HealthReport> {
+    state.recording.lock().ok()?.as_ref().map(Recording::health)
+}
+
 #[tauri::command]
 async fn stop_recording(state: State<'_, AppState>) -> Result<PathBuf, String> {
     let recording = state
@@ -126,6 +133,8 @@ pub fn self_test(
     };
     let recording = Recording::start(&options, capture::new_output_path(None)?)?;
     std::thread::sleep(std::time::Duration::from_secs(seconds));
+    // Lo que detectó la vigilancia de grabación vacía, para revisarlo en las pruebas.
+    eprintln!("{:?}", recording.health());
     recording.stop()
 }
 
@@ -134,6 +143,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             get_language,
@@ -142,7 +152,8 @@ pub fn run() {
             get_output_dir,
             set_output_dir,
             start_recording,
-            stop_recording
+            stop_recording,
+            recording_health
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

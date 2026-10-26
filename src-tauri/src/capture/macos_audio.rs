@@ -41,6 +41,8 @@ pub struct AudioConformer {
     resampler: LinearResampler,
     /// Último formato de entrada visto, para diagnosticar fallos.
     pub source_format: String,
+    /// Si el último búfer de la fuente traía sonido (no silencio digital).
+    pub last_had_sound: bool,
 }
 
 // SAFETY: solo se usa detrás del Mutex del escritor.
@@ -87,6 +89,7 @@ impl AudioConformer {
             next_frame: None,
             resampler: LinearResampler::new(channels),
             source_format: String::new(),
+            last_had_sound: false,
         })
     }
 
@@ -123,6 +126,7 @@ impl AudioConformer {
         );
 
         let input = read_frames(sample, in_channels, bits, flags, self.channels)?;
+        self.last_had_sound = super::health::has_sound(&input);
         let pts = sample.presentation_timestamp();
         let pts_seconds = pts.value as f64 / f64::from(pts.timescale.max(1));
 

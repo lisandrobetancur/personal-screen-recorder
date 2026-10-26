@@ -27,6 +27,7 @@ use windows_capture::settings::{
 };
 use windows_capture::window::Window;
 
+use super::health::{AudioSource, Health, HealthReport, BLACK_CHECK_WINDOW_SECS};
 use super::{Microphone, RecordOptions, Source, SourceKind};
 
 const SAMPLE_RATE: usize = 48_000;
@@ -112,6 +113,7 @@ pub struct Recording {
     encoder: SharedEncoder,
     stop: Arc<AtomicBool>,
     audio_threads: Vec<JoinHandle<()>>,
+    health: Arc<Health>,
     path: PathBuf,
 }
 
@@ -142,11 +144,13 @@ impl Recording {
         let encoder: SharedEncoder = Arc::new(Mutex::new(Some(encoder)));
 
         let stop = Arc::new(AtomicBool::new(false));
-        let audio_threads = if with_audio { start_audio(options, &encoder, &stop)? } else { Vec::new() };
+        let health = Arc::new(Health::default());
+        health.start();
+        let audio_threads = if with_audio { start_audio(options, &encoder, &stop, &health)? } else { Vec::new() };
 
         let cursor = if options.show_cursor { CursorCaptureSettings::WithCursor } else { CursorCaptureSettings::WithoutCursor };
         let interval = MinimumUpdateIntervalSettings::Custom(Duration::from_secs_f64(1.0 / f64::from(fps)));
-        let flags = Arc::clone(&encoder);
+        let flags = CaptureFlags { encoder: Arc::clone(&encoder), health: Arc::clone(&health) };
         let capture = match options.source_kind {
             SourceKind::Display => {
                 let monitor = Monitor::from_index(options.source_id as usize)
@@ -187,7 +191,11 @@ impl Recording {
             }
         };
 
-        Ok(Self { capture: Some(capture), encoder, stop, audio_threads, path })
+        Ok(Self { capture: Some(capture), encoder, stop, audio_threads, health, path })
+    }
+
+    pub fn health(&self) -> HealthReport {
+        self.health.report()
     }
 
     pub fn stop(mut self) -> Result<PathBuf, String> {
@@ -231,23 +239,51 @@ fn source_size(options: &RecordOptions) -> Result<(u32, u32), String> {
     }
 }
 
+struct CaptureFlags {
+    encoder: SharedEncoder,
+    health: Arc<Health>,
+}
+
 struct CaptureHandler {
     encoder: SharedEncoder,
+    health: Arc<Health>,
+    /// Última vez que se revisó si la imagen estaba negra (una vez por segundo).
+    last_black_check: Option<Instant>,
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
-    type Flags = SharedEncoder;
+    type Flags = CaptureFlags;
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        Ok(Self { encoder: ctx.flags })
+        Ok(Self { encoder: ctx.flags.encoder, health: ctx.flags.health, last_black_check: None })
     }
 
     fn on_frame_arrived(&mut self, frame: &mut Frame, _control: InternalCaptureControl) -> Result<(), Self::Error> {
+        self.check_black(frame);
         if let Some(encoder) = self.encoder.lock().map_err(|_| "codificador bloqueado")?.as_mut() {
             encoder.send_frame(frame)?;
         }
         Ok(())
+    }
+}
+
+impl CaptureHandler {
+    /// Una vez por segundo, y solo al empezar, revisa si la imagen está
+    /// completamente negra (contenido protegido o fuente equivocada).
+    fn check_black(&mut self, frame: &mut Frame) {
+        let now = Instant::now();
+        if self.last_black_check.is_some_and(|t| now.duration_since(t) < Duration::from_secs(1))
+            || self.health.elapsed_secs() > BLACK_CHECK_WINDOW_SECS
+        {
+            return;
+        }
+        self.last_black_check = Some(now);
+        let Ok(mut buffer) = frame.buffer() else { return };
+        let (width, height, row) = (buffer.width() as usize, buffer.height() as usize, buffer.row_pitch() as usize);
+        // BGRA: negro es 0 en los tres colores (se tolera un poco).
+        let black = super::health::is_black(buffer.as_raw_buffer(), width, height, row, 4, 8);
+        self.health.frame(black);
     }
 }
 
@@ -257,19 +293,24 @@ type Pending = Arc<Mutex<VecDeque<f32>>>;
 /// Arranca un hilo por fuente de audio y un mezclador que las suma y las
 /// entrega al codificador al ritmo del reloj: si una fuente no manda nada
 /// (no suena nada), se rellena con silencio y la pista sigue alineada.
-fn start_audio(options: &RecordOptions, encoder: &SharedEncoder, stop: &Arc<AtomicBool>) -> Result<Vec<JoinHandle<()>>, String> {
+fn start_audio(
+    options: &RecordOptions,
+    encoder: &SharedEncoder,
+    stop: &Arc<AtomicBool>,
+    health: &Arc<Health>,
+) -> Result<Vec<JoinHandle<()>>, String> {
     let mut sources: Vec<Pending> = Vec::new();
     let mut threads = Vec::new();
 
     if options.system_audio {
         let pending = Pending::default();
-        threads.push(spawn_capture(Endpoint::SystemLoopback, Arc::clone(&pending), Arc::clone(stop))?);
+        threads.push(spawn_capture(Endpoint::SystemLoopback, Arc::clone(&pending), Arc::clone(stop), Arc::clone(health))?);
         sources.push(pending);
     }
     if options.microphone {
         let pending = Pending::default();
         let endpoint = Endpoint::Microphone(options.microphone_id.clone());
-        threads.push(spawn_capture(endpoint, Arc::clone(&pending), Arc::clone(stop))?);
+        threads.push(spawn_capture(endpoint, Arc::clone(&pending), Arc::clone(stop), Arc::clone(health))?);
         sources.push(pending);
     }
 
@@ -325,14 +366,19 @@ enum Endpoint {
 
 /// Abre la fuente en este hilo (para informar errores al empezar) y luego la
 /// lee en un hilo propio hasta que `stop` se active.
-fn spawn_capture(endpoint: Endpoint, pending: Pending, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>, String> {
+fn spawn_capture(
+    endpoint: Endpoint,
+    pending: Pending,
+    stop: Arc<AtomicBool>,
+    health: Arc<Health>,
+) -> Result<JoinHandle<()>, String> {
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let label = match endpoint {
         Endpoint::SystemLoopback => tr!("el audio del sistema", "system audio"),
         Endpoint::Microphone(_) => tr!("el micrófono", "the microphone"),
     };
     let thread = std::thread::spawn(move || {
-        if let Err(e) = capture_loop(&endpoint, &pending, &stop, &ready_tx) {
+        if let Err(e) = capture_loop(&endpoint, &pending, &stop, &health, &ready_tx) {
             let _ = ready_tx.send(Err(e.to_string()));
         }
     });
@@ -350,8 +396,13 @@ fn capture_loop(
     endpoint: &Endpoint,
     pending: &Pending,
     stop: &AtomicBool,
+    health: &Health,
     ready: &std::sync::mpsc::Sender<Result<(), String>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let source = match endpoint {
+        Endpoint::SystemLoopback => AudioSource::System,
+        Endpoint::Microphone(_) => AudioSource::Microphone,
+    };
     let _ = wasapi::initialize_mta();
     let enumerator = DeviceEnumerator::new()?;
     let device = match endpoint {
@@ -387,6 +438,7 @@ fn capture_loop(
             .chunks_exact(4)
             .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             .collect();
+        health.audio(source, &samples);
         if let Ok(mut p) = pending.lock() {
             p.extend(samples);
         }

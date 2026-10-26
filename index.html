@@ -31,6 +31,7 @@
         <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61M2 2l20 20" /></symbol>
         <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
         <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4M12 17h.01" /></symbol>
         <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.5" /><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5" /></symbol>
       </defs>
     </svg>
@@ -144,6 +145,17 @@
     </main>
 
     <footer class="dock">
+      <div id="alert" class="alert" role="alertdialog" aria-labelledby="alert-title" aria-describedby="alert-text" hidden>
+        <svg><use href="#i-alert" /></svg>
+        <div class="alert-text">
+          <strong id="alert-title"></strong>
+          <small id="alert-text"></small>
+        </div>
+        <div class="alert-actions">
+          <button id="alert-real" class="button secondary" data-i18n="alert.real">Sí, es real</button>
+          <button id="alert-stop" class="button destructive" data-i18n="alert.stop">Detener</button>
+        </div>
+      </div>
       <p id="status" class="status" role="status"></p>
       <div class="dock-row">
         <button class="folder" id="change-dir" title="Elegir la carpeta donde se guardan las grabaciones">
