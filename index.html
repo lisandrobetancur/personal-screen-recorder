@@ -96,6 +96,11 @@
             <div class="select-wrap" id="microphone-wrap" hidden>
               <select id="microphone-id"></select>
             </div>
+            <label class="option">
+              <svg><use href="#i-alert" /></svg>
+              <span class="option-text"><span data-i18n="audio.warn">Avisar si falta el sonido</span><small data-i18n="audio.warnHint">Pregunta si no llega audio al grabar</small></span>
+              <input type="checkbox" class="toggle" id="warn-silence" checked />
+            </label>
           </div>
         </div>
       </section>
@@ -145,12 +150,9 @@
     </main>
 
     <footer class="dock">
-      <div id="alert" class="alert" role="alertdialog" aria-labelledby="alert-title" aria-describedby="alert-text" hidden>
+      <div id="alert" class="alert" role="alertdialog" aria-describedby="alert-items" hidden>
         <svg><use href="#i-alert" /></svg>
-        <div class="alert-text">
-          <strong id="alert-title"></strong>
-          <small id="alert-text"></small>
-        </div>
+        <div class="alert-text" id="alert-items"></div>
         <div class="alert-actions">
           <button id="alert-real" class="button secondary" data-i18n="alert.real">Sí, es real</button>
           <button id="alert-stop" class="button destructive" data-i18n="alert.stop">Detener</button>

@@ -641,7 +641,13 @@ select {
   margin-top: 1px;
 }
 
-.alert-text strong {
+.alert-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-item strong {
   display: block;
   font-weight: 600;
 }

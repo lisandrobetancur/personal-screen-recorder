@@ -43,16 +43,18 @@ export class Watchdog {
   private nextBlackAsk = 0;
   /** Ya se avisó del corte actual de cada fuente; se rearma cuando vuelve el sonido. */
   private lostWarned = { microphone: false, system: false };
-  private open: Check | null = null;
+  /** Preguntas abiertas: si fallan varias cosas a la vez, se preguntan juntas. */
+  private open = new Set<Check>();
 
+  /** `sources`: qué fuentes de audio vigilar (las grabadas, si se pidió avisar). */
   constructor(private readonly sources: { system: boolean; microphone: boolean }) {}
 
-  get question(): Check | null {
-    return this.open;
+  get questions(): Check[] {
+    return [...this.open];
   }
 
-  /** Revisa el estado; devuelve la pregunta que hay que mostrar, o null. */
-  update(r: HealthReport): Check | null {
+  /** Revisa el estado; devuelve las preguntas que hay que mostrar (vacío si ninguna). */
+  update(r: HealthReport): Check[] {
     // Si la imagen volvió, un negro nuevo se puede preguntar enseguida.
     if (r.blackSecs === 0) this.nextBlackAsk = 0;
 
@@ -61,72 +63,70 @@ export class Watchdog {
     if (micBack) this.lostWarned.microphone = false;
     if (systemBack) this.lostWarned.system = false;
 
-    // Si mientras se preguntaba volvió la señal, la pregunta sobra.
-    if (this.open === "black" && r.blackSecs === 0) this.open = null;
-    if (this.open === "microphone" && r.microphoneHeard) this.open = null;
-    if (this.open === "system" && r.systemHeard) this.open = null;
-    if (this.open === "microphoneLost" && micBack) this.open = null;
-    if (this.open === "systemLost" && systemBack) this.open = null;
-    if (this.open) return this.open;
+    // Si mientras se preguntaba volvió la señal, esa pregunta sobra.
+    const resolved: Record<Check, boolean> = {
+      black: r.blackSecs === 0,
+      microphone: r.microphoneHeard,
+      system: r.systemHeard,
+      microphoneLost: micBack,
+      systemLost: systemBack,
+    };
+    for (const check of this.open) if (resolved[check]) this.open.delete(check);
 
     const t = r.elapsedSecs;
-    if (
-      t <= BLACK_WINDOW_SECS + FIRST_CHECK_SECS &&
-      this.blackAsks < BLACK_MAX_ASKS &&
-      t >= this.nextBlackAsk &&
-      r.blackSecs >= FIRST_CHECK_SECS
-    ) {
-      this.open = "black";
-    } else if (
-      this.sources.microphone &&
-      !r.microphoneHeard &&
-      t >= this.nextMicAsk &&
-      t <= MIC_WINDOW_SECS &&
-      r.microphoneSilentSecs >= FIRST_CHECK_SECS
-    ) {
-      this.open = "microphone";
-    } else if (
-      this.sources.system &&
-      !r.systemHeard &&
-      this.systemAsks < 2 &&
-      t >= this.nextSystemAsk &&
-      r.systemSilentSecs >= FIRST_CHECK_SECS
-    ) {
-      this.open = "system";
-    } else if (
-      this.sources.microphone &&
-      r.microphoneHeard &&
-      !this.lostWarned.microphone &&
-      r.microphoneSilentSecs >= LOST_AFTER_SECS
-    ) {
-      this.open = "microphoneLost";
-    } else if (this.sources.system && r.systemHeard && !this.lostWarned.system && r.systemSilentSecs >= LOST_AFTER_SECS) {
-      this.open = "systemLost";
-    }
-    return this.open;
+    const due: Record<Check, boolean> = {
+      black:
+        t <= BLACK_WINDOW_SECS + FIRST_CHECK_SECS &&
+        this.blackAsks < BLACK_MAX_ASKS &&
+        t >= this.nextBlackAsk &&
+        r.blackSecs >= FIRST_CHECK_SECS,
+      microphone:
+        this.sources.microphone &&
+        !r.microphoneHeard &&
+        t >= this.nextMicAsk &&
+        t <= MIC_WINDOW_SECS &&
+        r.microphoneSilentSecs >= FIRST_CHECK_SECS,
+      system:
+        this.sources.system &&
+        !r.systemHeard &&
+        this.systemAsks < 2 &&
+        t >= this.nextSystemAsk &&
+        r.systemSilentSecs >= FIRST_CHECK_SECS,
+      microphoneLost:
+        this.sources.microphone &&
+        r.microphoneHeard &&
+        !this.lostWarned.microphone &&
+        r.microphoneSilentSecs >= LOST_AFTER_SECS,
+      systemLost:
+        this.sources.system && r.systemHeard && !this.lostWarned.system && r.systemSilentSecs >= LOST_AFTER_SECS,
+    };
+    for (const check of Object.keys(due) as Check[]) if (due[check]) this.open.add(check);
+    return this.questions;
   }
 
-  /** La persona confirmó que el silencio (o el negro) es real: seguir grabando. */
+  /** La persona confirmó que todo lo preguntado es real: seguir grabando. */
   confirm(elapsedSecs: number) {
-    switch (this.open) {
-      case "black":
-        this.blackAsks += 1;
-        this.nextBlackAsk = elapsedSecs + BLACK_REPEAT_SECS;
-        break;
-      case "microphone":
-        this.nextMicAsk = elapsedSecs + MIC_REPEAT_SECS;
-        break;
-      case "system":
-        this.systemAsks += 1;
-        this.nextSystemAsk = Math.max(elapsedSecs + 1, SYSTEM_SECOND_ASK_SECS);
-        break;
-      case "microphoneLost":
-        this.lostWarned.microphone = true;
-        break;
-      case "systemLost":
-        this.lostWarned.system = true;
-        break;
+    for (const check of this.open) {
+      switch (check) {
+        case "black":
+          this.blackAsks += 1;
+          this.nextBlackAsk = elapsedSecs + BLACK_REPEAT_SECS;
+          break;
+        case "microphone":
+          this.nextMicAsk = elapsedSecs + MIC_REPEAT_SECS;
+          break;
+        case "system":
+          this.systemAsks += 1;
+          this.nextSystemAsk = Math.max(elapsedSecs + 1, SYSTEM_SECOND_ASK_SECS);
+          break;
+        case "microphoneLost":
+          this.lostWarned.microphone = true;
+          break;
+        case "systemLost":
+          this.lostWarned.system = true;
+          break;
+      }
     }
-    this.open = null;
+    this.open.clear();
   }
 }

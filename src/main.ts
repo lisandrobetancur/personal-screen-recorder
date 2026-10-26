@@ -54,8 +54,8 @@ const els = {
   lastMeta: $<HTMLElement>("#last-meta"),
   reveal: $<HTMLButtonElement>("#reveal"),
   alert: $<HTMLDivElement>("#alert"),
-  alertTitle: $<HTMLElement>("#alert-title"),
-  alertText: $<HTMLElement>("#alert-text"),
+  alertItems: $<HTMLElement>("#alert-items"),
+  warnSilence: $<HTMLInputElement>("#warn-silence"),
   alertReal: $<HTMLButtonElement>("#alert-real"),
   alertStop: $<HTMLButtonElement>("#alert-stop"),
 };
@@ -238,6 +238,7 @@ function updateControls() {
     els.showCursor,
     els.showClicks,
     els.excludeSelf,
+    els.warnSilence,
     els.microphoneId,
     els.changeDir,
   ]) {
@@ -314,14 +315,16 @@ const alertTexts = {
 } as const satisfies Record<Check, readonly [string, string]>;
 
 function startWatching() {
-  state.watchdog = new Watchdog({ system: els.systemAudio.checked, microphone: els.microphone.checked });
+  // Sin «Avisar si falta el sonido» solo se vigila la imagen.
+  const warn = els.warnSilence.checked;
+  state.watchdog = new Watchdog({ system: warn && els.systemAudio.checked, microphone: warn && els.microphone.checked });
   state.watchId = window.setInterval(checkHealth, 1000);
 }
 
 function stopWatching() {
   window.clearInterval(state.watchId);
   state.watchdog = null;
-  showAlert(null);
+  showAlert([]);
 }
 
 async function checkHealth() {
@@ -330,30 +333,42 @@ async function checkHealth() {
   const report = await invoke<HealthReport | null>("recording_health").catch(() => null);
   if (!report || state.watchdog !== watchdog) return;
   state.lastHealth = report;
-  const before = watchdog.question;
-  const question = watchdog.update(report);
-  if (question !== before) {
-    showAlert(question);
-    if (question) notify(question);
+  const before = watchdog.questions;
+  const questions = watchdog.update(report);
+  if (questions.join() !== before.join()) {
+    showAlert(questions);
+    const added = questions.filter((q) => !before.includes(q));
+    if (added.length) notify(added);
   }
 }
 
-function showAlert(question: Check | null) {
-  els.alert.hidden = !question;
-  if (!question) return;
-  const [title, text] = alertTexts[question];
-  els.alertTitle.textContent = t(title);
-  els.alertText.textContent = t(text);
+/** Muestra todas las preguntas abiertas en un solo aviso. */
+function showAlert(questions: Check[]) {
+  els.alert.hidden = questions.length === 0;
+  els.alertItems.replaceChildren(
+    ...questions.map((q) => {
+      const [title, text] = alertTexts[q];
+      const item = document.createElement("div");
+      item.className = "alert-item";
+      const strong = document.createElement("strong");
+      strong.textContent = t(title);
+      const small = document.createElement("small");
+      small.textContent = t(text);
+      item.append(strong, small);
+      return item;
+    }),
+  );
 }
 
 /** Notificación del sistema: mientras se graba, la ventana suele estar detrás. */
-async function notify(question: Check) {
+async function notify(questions: Check[]) {
   if (preview) return;
-  const [title, text] = alertTexts[question];
+  const [title, text] = alertTexts[questions[0]];
+  const body = questions.length === 1 ? t(text) : questions.slice(1).map((q) => t(alertTexts[q][0])).join(" · ");
   try {
     let granted = await isPermissionGranted();
     if (!granted) granted = (await requestPermission()) === "granted";
-    if (granted) sendNotification({ title: t(title), body: t(text) });
+    if (granted) sendNotification({ title: t(title), body });
   } catch {
     // Sin notificaciones queda el aviso dentro de la app.
   }
@@ -457,10 +472,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   els.changeDir.addEventListener("click", changeOutputDir);
   els.alertReal.addEventListener("click", () => {
     state.watchdog?.confirm(state.lastHealth?.elapsedSecs ?? 0);
-    showAlert(null);
+    showAlert([]);
   });
   els.alertStop.addEventListener("click", () => {
-    showAlert(null);
+    showAlert([]);
     if (state.recording && !state.busy) toggleRecording();
   });
   els.reveal.addEventListener("click", () => state.lastPath && !preview && revealItemInDir(state.lastPath));
