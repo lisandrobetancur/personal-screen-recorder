@@ -1,4 +1,4 @@
-//! Marcador para sistemas cuyo motor aún no existe (Windows, por ahora).
+//! Marcador para sistemas sin motor de grabación (todo salvo macOS y Windows).
 
 use std::path::PathBuf;
 

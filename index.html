@@ -30,6 +30,7 @@
         <symbol id="i-click" viewBox="0 0 24 24"><path d="m9 9 5 12 1.8-5.2L21 14 9 9Z" /><path d="M7.2 2.2 8 5.1M5.1 8 2.2 7.2M14 4.1 12 6.2M6.2 12l-2.1 2" /></symbol>
         <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68M6.61 6.61A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.39-1.61M2 2l20 20" /></symbol>
         <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
         <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.5" /><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5" /></symbol>
       </defs>
     </svg>
@@ -47,58 +48,92 @@
     </header>
 
     <main>
-      <section class="card">
-        <div class="card-head">
-          <h2>Qué grabar</h2>
-          <button id="refresh" class="icon-button" title="Actualizar lista" aria-label="Actualizar lista"><svg><use href="#i-refresh" /></svg></button>
-        </div>
-        <div class="tabs" role="tablist">
-          <button role="tab" data-kind="display" class="tab active"><svg><use href="#i-monitor" /></svg>Pantalla</button>
-          <button role="tab" data-kind="window" class="tab"><svg><use href="#i-window" /></svg>Ventana</button>
-        </div>
-        <ul id="sources" class="sources" aria-label="Fuentes"></ul>
-      </section>
-
-      <section class="card">
-        <h2>Audio</h2>
-        <label class="option">
-          <svg><use href="#i-speaker" /></svg>
-          <span class="option-text">Audio del sistema<small>Lo que suena en el equipo</small></span>
-          <input type="checkbox" class="toggle" id="system-audio" checked />
-        </label>
-        <label class="option">
-          <svg><use href="#i-mic" /></svg>
-          <span class="option-text">Micrófono<small>Tu voz, en una pista aparte</small></span>
-          <input type="checkbox" class="toggle" id="microphone" />
-        </label>
-        <div class="select-wrap" id="microphone-wrap" hidden>
-          <select id="microphone-id"></select>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h2>Video</h2>
-          <div class="segmented" id="fps" role="radiogroup" aria-label="Cuadros por segundo">
-            <button data-fps="30" class="active">30 fps</button>
-            <button data-fps="60">60 fps</button>
+      <section class="card fold" data-section="source">
+        <h2 class="fold-head">
+          <button class="fold-toggle" aria-expanded="false" aria-controls="body-source">
+            <svg class="fold-icon"><use href="#i-monitor" /></svg>
+            <span class="fold-title">Qué grabar</span>
+            <span class="fold-summary" id="summary-source"></span>
+            <svg class="chevron"><use href="#i-chevron" /></svg>
+          </button>
+        </h2>
+        <div class="fold-body" id="body-source" inert>
+          <div class="fold-inner">
+            <div class="row source-tools">
+              <div class="tabs" role="tablist">
+                <button role="tab" data-kind="display" class="tab active"><svg><use href="#i-monitor" /></svg>Pantalla</button>
+                <button role="tab" data-kind="window" class="tab"><svg><use href="#i-window" /></svg>Ventana</button>
+              </div>
+              <button id="refresh" class="icon-button" title="Actualizar lista" aria-label="Actualizar lista"><svg><use href="#i-refresh" /></svg></button>
+            </div>
+            <ul id="sources" class="sources" aria-label="Fuentes"></ul>
           </div>
         </div>
-        <label class="option">
-          <svg><use href="#i-cursor" /></svg>
-          <span class="option-text">Mostrar el cursor</span>
-          <input type="checkbox" class="toggle" id="show-cursor" checked />
-        </label>
-        <label class="option">
-          <svg><use href="#i-click" /></svg>
-          <span class="option-text">Resaltar los clics</span>
-          <input type="checkbox" class="toggle" id="show-clicks" />
-        </label>
-        <label class="option">
-          <svg><use href="#i-eye-off" /></svg>
-          <span class="option-text">Ocultar esta app<small>Al grabar una pantalla completa</small></span>
-          <input type="checkbox" class="toggle" id="exclude-self" checked />
-        </label>
+      </section>
+
+      <section class="card fold" data-section="audio">
+        <h2 class="fold-head">
+          <button class="fold-toggle" aria-expanded="false" aria-controls="body-audio">
+            <svg class="fold-icon"><use href="#i-speaker" /></svg>
+            <span class="fold-title">Audio</span>
+            <span class="fold-summary" id="summary-audio"></span>
+            <svg class="chevron"><use href="#i-chevron" /></svg>
+          </button>
+        </h2>
+        <div class="fold-body" id="body-audio" inert>
+          <div class="fold-inner">
+            <label class="option">
+              <svg><use href="#i-speaker" /></svg>
+              <span class="option-text">Audio del sistema<small>Lo que suena en el equipo</small></span>
+              <input type="checkbox" class="toggle" id="system-audio" checked />
+            </label>
+            <label class="option">
+              <svg><use href="#i-mic" /></svg>
+              <span class="option-text">Micrófono<small>Tu voz, en una pista aparte</small></span>
+              <input type="checkbox" class="toggle" id="microphone" />
+            </label>
+            <div class="select-wrap" id="microphone-wrap" hidden>
+              <select id="microphone-id"></select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card fold" data-section="video">
+        <h2 class="fold-head">
+          <button class="fold-toggle" aria-expanded="false" aria-controls="body-video">
+            <svg class="fold-icon"><use href="#i-film" /></svg>
+            <span class="fold-title">Video</span>
+            <span class="fold-summary" id="summary-video"></span>
+            <svg class="chevron"><use href="#i-chevron" /></svg>
+          </button>
+        </h2>
+        <div class="fold-body" id="body-video" inert>
+          <div class="fold-inner">
+            <div class="row option-row">
+              <span>Cuadros por segundo</span>
+              <div class="segmented" id="fps" role="radiogroup" aria-label="Cuadros por segundo">
+                <button data-fps="30" class="active">30 fps</button>
+                <button data-fps="60">60 fps</button>
+              </div>
+            </div>
+            <label class="option">
+              <svg><use href="#i-cursor" /></svg>
+              <span class="option-text">Mostrar el cursor</span>
+              <input type="checkbox" class="toggle" id="show-cursor" checked />
+            </label>
+            <label class="option">
+              <svg><use href="#i-click" /></svg>
+              <span class="option-text">Resaltar los clics</span>
+              <input type="checkbox" class="toggle" id="show-clicks" />
+            </label>
+            <label class="option">
+              <svg><use href="#i-eye-off" /></svg>
+              <span class="option-text">Ocultar esta app<small>Al grabar una pantalla completa</small></span>
+              <input type="checkbox" class="toggle" id="exclude-self" checked />
+            </label>
+          </div>
+        </div>
       </section>
 
       <div id="last" class="last" hidden>
@@ -111,7 +146,9 @@
     <footer class="dock">
       <p id="status" class="status" role="status"></p>
       <div class="dock-row">
-        <span class="folder muted" id="output-dir" title=""><svg><use href="#i-folder" /></svg><span></span></span>
+        <button class="folder" id="change-dir" title="Elegir la carpeta donde se guardan las grabaciones">
+          <svg><use href="#i-folder" /></svg><span id="output-dir"></span><span class="folder-action">Cambiar</span>
+        </button>
         <span id="timer" class="timer">00:00:00</span>
       </div>
       <button id="record" class="record-button" disabled>

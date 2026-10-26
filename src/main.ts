@@ -1,9 +1,11 @@
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { mockInvoke } from "./mock";
+import { mockInvoke, mockPickFolder } from "./mock";
 
-const invoke: typeof tauriInvoke = !isTauri() && import.meta.env.DEV ? mockInvoke : tauriInvoke;
+const preview = !isTauri() && import.meta.env.DEV;
+const invoke = (preview ? mockInvoke : tauriInvoke) as typeof tauriInvoke;
 
 type SourceKind = "display" | "window";
 type Theme = "system" | "light" | "dark";
@@ -26,6 +28,7 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 
 const els = {
   themeButtons: document.querySelectorAll<HTMLButtonElement>(".theme button"),
+  folds: document.querySelectorAll<HTMLElement>(".fold"),
   refresh: $<HTMLButtonElement>("#refresh"),
   tabs: document.querySelectorAll<HTMLButtonElement>(".tab"),
   sources: $<HTMLUListElement>("#sources"),
@@ -38,6 +41,7 @@ const els = {
   showClicks: $<HTMLInputElement>("#show-clicks"),
   excludeSelf: $<HTMLInputElement>("#exclude-self"),
   outputDir: $<HTMLSpanElement>("#output-dir"),
+  changeDir: $<HTMLButtonElement>("#change-dir"),
   record: $<HTMLButtonElement>("#record"),
   recordLabel: $<HTMLSpanElement>("#record-label"),
   timer: $<HTMLSpanElement>("#timer"),
@@ -57,6 +61,7 @@ const state = {
   busy: false,
   startedAt: 0,
   timerId: 0,
+  outputDir: "",
   lastPath: "",
 };
 
@@ -84,6 +89,30 @@ function applyTheme(theme: Theme) {
       .setTheme(theme === "system" ? null : theme)
       .catch(() => {});
   }
+}
+
+// ---------- Secciones plegables ----------
+
+/** Abre una sección y cierra las demás: solo una abierta a la vez. */
+function openSection(key: string | null) {
+  els.folds.forEach((fold) => {
+    const open = fold.dataset.section === key;
+    fold.classList.toggle("open", open);
+    fold.querySelector(".fold-toggle")!.setAttribute("aria-expanded", String(open));
+    fold.querySelector(".fold-body")!.toggleAttribute("inert", !open);
+  });
+}
+
+function setSummary(key: string, text: string) {
+  $<HTMLSpanElement>(`#summary-${key}`).textContent = text;
+}
+
+/** Resumen de cada sección, visible aunque esté cerrada. */
+function updateSummaries() {
+  setSummary("source", state.selected ? splitName(state.selected)[0] : "Elige una fuente");
+  const audio = [els.systemAudio.checked && "Sistema", els.microphone.checked && "Micrófono"].filter(Boolean);
+  setSummary("audio", audio.length ? audio.join(" + ") : "Sin audio");
+  setSummary("video", `${state.fps} fps`);
 }
 
 // ---------- Fuentes ----------
@@ -149,13 +178,23 @@ function updateControls() {
   document.body.classList.toggle("is-recording", state.recording);
   els.recordLabel.textContent = state.busy && state.recording ? "Guardando…" : state.recording ? "Detener" : "Grabar";
   const lock = state.recording || state.busy;
-  for (const el of [els.refresh, els.systemAudio, els.microphone, els.showCursor, els.showClicks, els.excludeSelf, els.microphoneId]) {
+  for (const el of [
+    els.refresh,
+    els.systemAudio,
+    els.microphone,
+    els.showCursor,
+    els.showClicks,
+    els.excludeSelf,
+    els.microphoneId,
+    els.changeDir,
+  ]) {
     el.disabled = lock;
   }
   els.microphoneWrap.hidden = !els.microphone.checked;
   els.sources.classList.toggle("locked", lock);
   els.tabs.forEach((t) => (t.disabled = lock));
   els.fps.querySelectorAll("button").forEach((b) => (b.disabled = lock));
+  updateSummaries();
 }
 
 async function loadSources() {
@@ -190,6 +229,27 @@ async function loadMicrophones() {
   updateControls();
 }
 
+// ---------- Carpeta de grabaciones ----------
+
+function showOutputDir(dir: string) {
+  state.outputDir = dir;
+  els.changeDir.title = `Se guarda en ${dir}. Clic para elegir otra carpeta.`;
+  els.outputDir.textContent = dir.replace(/^\/Users\/[^/]+/, "~");
+}
+
+async function changeOutputDir() {
+  const picked = preview
+    ? await mockPickFolder()
+    : await pickFolder({ directory: true, defaultPath: state.outputDir, title: "Carpeta para las grabaciones" });
+  if (typeof picked !== "string") return;
+  try {
+    showOutputDir(await invoke<string>("set_output_dir", { path: picked }));
+    setStatus("Las próximas grabaciones se guardarán en esa carpeta.");
+  } catch (e) {
+    setStatus(String(e), true);
+  }
+}
+
 // ---------- Grabación ----------
 
 function formatElapsed(ms: number) {
@@ -216,7 +276,7 @@ async function toggleRecording() {
           showCursor: els.showCursor.checked,
           showClicks: els.showClicks.checked,
           excludeSelf: els.excludeSelf.checked,
-          outputDir: null,
+          outputDir: state.outputDir || null,
         },
       });
       state.recording = true;
@@ -254,6 +314,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   applyTheme(readTheme());
   els.themeButtons.forEach((b) => b.addEventListener("click", () => applyTheme(b.dataset.theme as Theme)));
 
+  els.folds.forEach((fold) =>
+    fold.querySelector(".fold-toggle")!.addEventListener("click", () => {
+      openSection(fold.classList.contains("open") ? null : fold.dataset.section!);
+    }),
+  );
+  // Al abrir la app, la primera sección queda abierta.
+  openSection(els.folds[0]?.dataset.section ?? null);
+
   els.tabs.forEach((tab) =>
     tab.addEventListener("click", () => {
       state.kind = tab.dataset.kind as SourceKind;
@@ -265,15 +333,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     b.addEventListener("click", () => {
       state.fps = Number(b.dataset.fps);
       els.fps.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
+      updateSummaries();
     }),
   );
-  els.microphone.addEventListener("change", updateControls);
+  for (const el of [els.systemAudio, els.microphone]) el.addEventListener("change", updateControls);
   els.refresh.addEventListener("click", loadSources);
   els.record.addEventListener("click", toggleRecording);
-  els.reveal.addEventListener("click", () => state.lastPath && revealItemInDir(state.lastPath));
+  els.changeDir.addEventListener("click", changeOutputDir);
+  els.reveal.addEventListener("click", () => state.lastPath && !preview && revealItemInDir(state.lastPath));
 
-  const dir = await invoke<string>("default_output_dir");
-  els.outputDir.title = dir;
-  els.outputDir.querySelector("span")!.textContent = dir.replace(/^\/Users\/[^/]+/, "~");
+  showOutputDir(await invoke<string>("get_output_dir"));
   await Promise.all([loadSources(), loadMicrophones()]);
 });

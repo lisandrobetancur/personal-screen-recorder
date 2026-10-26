@@ -6,7 +6,12 @@ fn main() {
     if let Some(i) = args.iter().position(|a| a == "--autoprueba") {
         let seconds = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(5);
         let microphone = args.iter().any(|a| a == "--mic");
-        match personal_screen_recorder_lib::self_test(seconds, microphone) {
+        let system_audio = !args.iter().any(|a| a == "--sin-audio");
+        let value = |flag: &str, default: u32| {
+            args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(default)
+        };
+        let (fps, display) = (value("--fps", 30), value("--pantalla", 1) as usize);
+        match personal_screen_recorder_lib::self_test(seconds, display, fps, system_audio, microphone) {
             Ok(path) => println!("OK {}", path.display()),
             Err(e) => {
                 println!("ERROR {e}");

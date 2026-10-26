@@ -14,12 +14,17 @@ const microphones = [
   { id: "b", name: "WH-XB910N", isDefault: false },
 ];
 
-export async function mockInvoke<T>(cmd: string): Promise<T> {
+export async function mockPickFolder(): Promise<string> {
+  return "/Users/demo/Documents/Clases grabadas";
+}
+
+export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 150));
   const results: Record<string, unknown> = {
     list_sources: sources,
     list_microphones: microphones,
-    default_output_dir: "/Users/demo/Movies/Personal Screen Recorder",
+    get_output_dir: "/Users/demo/Movies/Personal Screen Recorder",
+    set_output_dir: args?.path,
     start_recording: "/Users/demo/Movies/Personal Screen Recorder/Grabación 2026-10-25 17.02.11.mp4",
     stop_recording: "/Users/demo/Movies/Personal Screen Recorder/Grabación 2026-10-25 17.02.11.mp4",
   };

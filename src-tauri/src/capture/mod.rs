@@ -11,9 +11,14 @@ mod macos_audio;
 #[cfg(target_os = "macos")]
 pub use macos::{list_microphones, list_sources, Recording};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::{list_microphones, list_sources, Recording};
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod unsupported;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub use unsupported::{list_microphones, list_sources, Recording};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -69,17 +74,25 @@ pub fn default_output_dir() -> PathBuf {
         .join("Personal Screen Recorder")
 }
 
+/// Extensión del archivo mientras se graba. En Mac se graba a .mov y al
+/// terminar se convierte a .mp4; en Windows se escribe el .mp4 directamente.
+#[cfg(target_os = "macos")]
+const RECORDING_EXTENSION: &str = "mov";
+#[cfg(not(target_os = "macos"))]
+const RECORDING_EXTENSION: &str = "mp4";
+
 /// Ruta nueva y única para una grabación dentro de `dir`.
 pub fn new_output_path(dir: Option<&Path>) -> Result<PathBuf, String> {
     let dir = dir.map(Path::to_path_buf).unwrap_or_else(default_output_dir);
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("No se pudo crear la carpeta {}: {e}", dir.display()))?;
     let stamp = chrono::Local::now().format("%Y-%m-%d %H.%M.%S");
-    let mut path = dir.join(format!("Grabación {stamp}.mov"));
+    let name = |suffix: &str| dir.join(format!("Grabación {stamp}{suffix}.{RECORDING_EXTENSION}"));
+    let mut path = name("");
     let mut n = 2;
-    // Se graba a .mov y al terminar se convierte a .mp4: ninguno debe existir.
+    // Ni el archivo de trabajo ni el .mp4 final deben existir ya.
     while path.exists() || path.with_extension("mp4").exists() {
-        path = dir.join(format!("Grabación {stamp} ({n}).mov"));
+        path = name(&format!(" ({n})"));
         n += 1;
     }
     Ok(path)

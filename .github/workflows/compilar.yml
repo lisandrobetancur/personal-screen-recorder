@@ -1,0 +1,134 @@
+name: Compilar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Pruebas
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      # Graba 5 s de la pantalla del servidor. Sin audio: estos equipos no
+      # tienen tarjeta de sonido. Si falla, el resto sigue para obtener el .exe.
+      - name: Grabación de prueba
+        id: grabacion
+        continue-on-error: true
+        working-directory: src-tauri
+        run: cargo run --release --example grabar -- 5 --sin-audio
+
+      - name: Subir la grabación de prueba
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grabacion-prueba-windows
+          path: ~/Videos/Personal Screen Recorder/*.mp4
+          if-no-files-found: warn
+
+      - name: Compilar la app
+        run: pnpm tauri build
+
+      - name: Subir instaladores
+        uses: actions/upload-artifact@v4
+        with:
+          name: instaladores-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+
+      # Aviso sin detener el flujo: los instaladores se publican igual.
+      - name: Avisar si la grabación de prueba falló
+        if: steps.grabacion.outcome == 'failure'
+        run: echo "::warning::La grabación de prueba en Windows falló; revisa el paso 'Grabación de prueba'."
+
+  macos:
+    name: macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Pruebas
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      # En GitHub no está el certificado local "PSR Desarrollo": se firma ad-hoc.
+      - name: Compilar la app (Intel + Apple Silicon)
+        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+
+      - name: Subir instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: instalador-macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  # Reemplaza la release "Última versión" con los instaladores recién compilados.
+  publicar:
+    name: Publicar «Última versión»
+    needs: [windows, macos]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: instalador*
+          path: instaladores
+          merge-multiple: true
+
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -la instaladores
+          gh release delete ultima-version --yes --cleanup-tag || true
+          gh release create ultima-version instaladores/* \
+            --title "Última versión" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --notes "Compilada automáticamente desde ${GITHUB_SHA::7}.
+
+          - **Windows:** \`*-setup.exe\` (instalador) o \`*.msi\`.
+          - **Mac (Intel y Apple Silicon):** \`*.dmg\`. No está firmada con Apple Developer: la primera vez ábrela con clic derecho → Abrir."

@@ -7,14 +7,20 @@ Rust + Tauri 2.
 
 | Función | macOS | Windows |
 |---|---|---|
-| Pantalla completa | ✅ | ⏳ |
-| Ventana | ✅ | ⏳ |
-| Audio del sistema | ✅ (13+) | ⏳ |
-| Micrófono | ✅ (15+) | ⏳ |
+| Pantalla completa | ✅ | 🧪 |
+| Ventana | ✅ | 🧪 |
+| Audio del sistema | ✅ (13+) | 🧪 |
+| Micrófono | ✅ (15+) | 🧪 (mezclado con el sistema) |
 | Pestaña del navegador (extensión) | ⏳ | ⏳ |
 | Varias pantallas a la vez | ⏳ | ⏳ |
 | Cámara web | ⏳ | ⏳ |
-| Pista de audio mezclada | ⏳ | ⏳ |
+| Pista de audio mezclada | ⏳ | ✅ (única pista) |
+
+🧪 = escrito y compilado; probado solo en el servidor de GitHub (sin audio), falta un PC real.
+
+En Windows, por ahora, el sistema y el micrófono van **mezclados en una sola pista** AAC de
+192 kbps (el máximo del codificador de Windows), y el MP4 se cierra al detener: no se
+escribe fragmentado como en Mac.
 
 ## Formato de salida
 
@@ -27,6 +33,19 @@ Rust + Tauri 2.
   golpe, ese archivo sigue sirviendo hasta el último fragmento. Al detener se copia a
   **.mp4 sin recomprimir** (segundos) y se borra el .mov. Si la copia fallara, queda el .mov.
 - Se guarda en `~/Movies/Personal Screen Recorder` (Mac) o `Videos\Personal Screen Recorder` (Windows).
+
+## Compilación automática (GitHub Actions)
+
+Cada `push` a `main` ejecuta `.github/workflows/compilar.yml`:
+
+- **Windows:** pruebas, una grabación de prueba de 5 s en el servidor (se descarga como
+  *grabacion-prueba-windows*) e instaladores `.exe` y `.msi` (*instaladores-windows*).
+- **macOS:** `.dmg` universal para Intel y Apple Silicon (*instalador-macos*), firmado
+  ad-hoc porque el certificado local no está en GitHub.
+
+Si las dos compilaciones salen bien, se reemplaza la release **«Última versión»** del repo
+(sección *Releases*) con el `.exe`, el `.msi` y el `.dmg` recién compilados. Cada ejecución
+también deja los archivos en la pestaña **Actions**.
 
 ## Desarrollo
 
@@ -42,7 +61,7 @@ Probar el motor sin interfaz, con los permisos de la app instalada (graba la pri
 pantalla N segundos e imprime la ruta o el error):
 
 ```bash
-open -n -W --stdout /tmp/prueba.txt "src-tauri/target/release/bundle/macos/Personal Screen Recorder.app" --args --autoprueba 6
+open -n -W --stdout /tmp/prueba.txt "src-tauri/target/release/bundle/macos/Personal Screen Recorder.app" --args --autoprueba 6 --fps 30 --pantalla 1
 ```
 
 Revisar el diseño en un navegador común, con datos de ejemplo: `pnpm dev` y abrir
@@ -71,4 +90,5 @@ eso macOS los niega sin mostrar aviso.
 - `src/`: interfaz (HTML, CSS y TypeScript).
 - `src-tauri/src/lib.rs`: comandos que la interfaz llama.
 - `src-tauri/src/capture/`: motor de grabación. `macos.rs` usa ScreenCaptureKit y AVAssetWriter;
-  `unsupported.rs` es el marcador mientras no exista el motor de Windows.
+  `macos_audio.rs` normaliza el audio; `windows.rs` usa Windows Graphics Capture, WASAPI y
+  Media Foundation; `unsupported.rs` es el marcador para otros sistemas.

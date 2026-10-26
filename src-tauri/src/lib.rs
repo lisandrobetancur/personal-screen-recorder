@@ -1,10 +1,12 @@
 pub mod capture;
+mod settings;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use capture::{Microphone, RecordOptions, Recording, Source};
-use tauri::State;
+use settings::Settings;
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Default)]
 struct AppState {
@@ -24,18 +26,48 @@ async fn list_microphones() -> Vec<Microphone> {
     capture::list_microphones()
 }
 
+fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("settings.json"))
+}
+
+fn load_settings(app: &AppHandle) -> Settings {
+    settings_file(app).map(|f| Settings::load(&f)).unwrap_or_default()
+}
+
+/// Carpeta donde se guardan las grabaciones (la elegida o la de omisión).
 #[tauri::command]
-fn default_output_dir() -> PathBuf {
-    capture::default_output_dir()
+fn get_output_dir(app: AppHandle) -> PathBuf {
+    load_settings(&app).output_dir()
 }
 
 #[tauri::command]
-async fn start_recording(options: RecordOptions, state: State<'_, AppState>) -> Result<PathBuf, String> {
+fn set_output_dir(app: AppHandle, path: PathBuf) -> Result<PathBuf, String> {
+    if !path.is_dir() {
+        return Err("Esa carpeta no existe.".into());
+    }
+    // Comprueba que se pueda escribir ahí antes de guardarla.
+    let probe = path.join(".personal-screen-recorder-prueba");
+    std::fs::write(&probe, b"").map_err(|_| "No se puede guardar en esa carpeta (sin permiso de escritura).")?;
+    let _ = std::fs::remove_file(&probe);
+
+    let mut settings = load_settings(&app);
+    settings.output_dir = Some(path.clone());
+    settings.save(&settings_file(&app)?)?;
+    Ok(path)
+}
+
+#[tauri::command]
+async fn start_recording(
+    options: RecordOptions,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PathBuf, String> {
     let mut slot = state.recording.lock().map_err(|e| e.to_string())?;
     if slot.is_some() {
         return Err("Ya hay una grabación en curso.".into());
     }
-    let path = capture::new_output_path(options.output_dir.as_deref())?;
+    let dir = options.output_dir.clone().unwrap_or_else(|| load_settings(&app).output_dir());
+    let path = capture::new_output_path(Some(&dir))?;
     *slot = Some(Recording::start(&options, path.clone())?);
     Ok(path)
 }
@@ -51,19 +83,26 @@ async fn stop_recording(state: State<'_, AppState>) -> Result<PathBuf, String> {
     recording.stop()
 }
 
-/// Graba la primera pantalla `seconds` segundos sin abrir la interfaz.
+/// Graba la pantalla número `display` (desde 1) `seconds` segundos sin abrir la interfaz.
 /// Sirve para probar el motor con los permisos de la app instalada:
 /// `open -W --stdout salida.txt App.app --args --autoprueba 5`.
-pub fn self_test(seconds: u64, microphone: bool) -> Result<PathBuf, String> {
+pub fn self_test(
+    seconds: u64,
+    display: usize,
+    fps: u32,
+    system_audio: bool,
+    microphone: bool,
+) -> Result<PathBuf, String> {
     let display = capture::list_sources()?
         .into_iter()
-        .find(|s| s.kind == capture::SourceKind::Display)
-        .ok_or("No hay pantallas.")?;
+        .filter(|s| s.kind == capture::SourceKind::Display)
+        .nth(display.saturating_sub(1))
+        .ok_or("No existe esa pantalla.")?;
     let options = RecordOptions {
         source_kind: display.kind,
         source_id: display.id,
-        fps: 30,
-        system_audio: true,
+        fps,
+        system_audio,
         microphone,
         microphone_id: None,
         show_cursor: true,
@@ -80,11 +119,13 @@ pub fn self_test(seconds: u64, microphone: bool) -> Result<PathBuf, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             list_sources,
             list_microphones,
-            default_output_dir,
+            get_output_dir,
+            set_output_dir,
             start_recording,
             stop_recording
         ])
