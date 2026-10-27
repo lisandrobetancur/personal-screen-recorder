@@ -3,15 +3,26 @@ name: Compilar
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión a publicar (ej. 0.2.0). Vacío = solo actualizar «Última versión».'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version }}
   cancel-in-progress: true
+
+# Con versión (por el formulario o por un tag v*) se publica una release
+# propia; sin ella, solo se reemplaza «Última versión».
+env:
+  VERSION: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
 
 jobs:
   windows:
@@ -52,6 +63,11 @@ jobs:
           name: grabacion-prueba-windows
           path: ~/Videos/Personal Screen Recorder/*.mp4
           if-no-files-found: warn
+
+      - name: Fijar la versión
+        if: env.VERSION != ''
+        shell: bash
+        run: node scripts/fijar-version.mjs "$VERSION"
 
       - name: Compilar la app
         run: pnpm tauri build
@@ -94,6 +110,10 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib
 
+      - name: Fijar la versión
+        if: env.VERSION != ''
+        run: node scripts/fijar-version.mjs "$VERSION"
+
       # En GitHub no está el certificado local "PSR Desarrollo": se firma ad-hoc.
       - name: Compilar la app (Intel + Apple Silicon)
         run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
@@ -104,9 +124,10 @@ jobs:
           name: instalador-macos
           path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
-  # Reemplaza la release "Última versión" con los instaladores recién compilados.
+  # Sin versión: reemplaza la release "Última versión". Con versión: crea la
+  # release vX.Y.Z (y su tag, si no existe) y deja el enlace en el resumen.
   publicar:
-    name: Publicar «Última versión»
+    name: Publicar
     needs: [windows, macos]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -125,12 +146,27 @@ jobs:
           # El artefacto de Windows conserva las subcarpetas nsis/ y msi/.
           mapfile -t archivos < <(find instaladores -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \))
           printf '%s\n' "${archivos[@]}"
-          gh release delete ultima-version --yes --cleanup-tag || true
-          gh release create ultima-version "${archivos[@]}" \
-            --title "Última versión" \
-            --target "$GITHUB_SHA" \
-            --prerelease \
-            --notes "Compilada automáticamente desde ${GITHUB_SHA::7}.
-
-          - **Windows:** \`*-setup.exe\` (instalador) o \`*.msi\`.
+          instrucciones="- **Windows:** \`*-setup.exe\` (instalador) o \`*.msi\`. La app no está firmada: si aparece «Windows protegió su PC», pulsa **Más información → Ejecutar de todas formas**.
           - **Mac (Intel y Apple Silicon):** \`*.dmg\`. No está firmada con Apple Developer: la primera vez ábrela con clic derecho → Abrir."
+
+          if [ -z "$VERSION" ]; then
+            gh release delete ultima-version --yes --cleanup-tag || true
+            gh release create ultima-version "${archivos[@]}" \
+              --title "Última versión" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --notes "Compilada automáticamente desde ${GITHUB_SHA::7}.
+
+          $instrucciones"
+            url=$(gh release view ultima-version --json url -q .url)
+          else
+            tag="v${VERSION#v}"
+            gh release create "$tag" "${archivos[@]}" \
+              --title "$tag" \
+              --target "$GITHUB_SHA" \
+              --latest \
+              --generate-notes \
+              --notes "$instrucciones"
+            url=$(gh release view "$tag" --json url -q .url)
+          fi
+          echo "Release publicada: $url" | tee -a "$GITHUB_STEP_SUMMARY"

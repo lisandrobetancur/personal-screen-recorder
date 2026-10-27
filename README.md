@@ -47,6 +47,18 @@ Si las dos compilaciones salen bien, se reemplaza la release **«Última versió
 (sección *Releases*) con el `.exe`, el `.msi` y el `.dmg` recién compilados. Cada ejecución
 también deja los archivos en la pestaña **Actions**.
 
+### Publicar una versión
+
+Hay tres formas; las tres compilan, crean la release **vX.Y.Z** con notas automáticas y dejan
+el enlace en el resumen de la ejecución:
+
+- Desde el móvil o la web: **Actions → Compilar → Run workflow**, escribir la versión (`0.2.0`).
+- Desde la terminal: `gh workflow run compilar.yml -f version=0.2.0`
+- Con un tag: `git tag v0.2.0 && git push origin v0.2.0`
+
+La versión debe ser `X.Y.Z` (el `.msi` no acepta otra cosa); `scripts/fijar-version.mjs` la
+escribe en `tauri.conf.json` antes de compilar, así que no hace falta cambiarla a mano.
+
 ## Desarrollo
 
 Requisitos: Rust (`brew install rustup`), Node y pnpm, Xcode.
