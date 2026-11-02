@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use capture::health::HealthReport;
 use capture::{Microphone, RecordOptions, Recording, Source};
 use settings::Settings;
-use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[derive(Default)]
@@ -93,6 +93,13 @@ async fn start_recording(
     let path = capture::new_output_path(Some(&dir))?;
     *slot = Some(Recording::start(&options, path.clone())?);
     app.state::<tray::Tray>().set_recording(true);
+    // Se oculta después de arrancar: si falla, el error queda a la vista.
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    // Mac: el foco vuelve a la app que se estaba usando.
+    #[cfg(target_os = "macos")]
+    let _ = app.hide();
     Ok(path)
 }
 
@@ -103,15 +110,49 @@ fn recording_health(state: State<'_, AppState>) -> Option<HealthReport> {
 }
 
 #[tauri::command]
-async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Result<PathBuf, String> {
-    let recording = state
+async fn stop_recording(app: AppHandle) -> Result<PathBuf, String> {
+    finish_recording(&app)
+}
+
+/// Vuelve a mostrar la ventana (por ejemplo, para elegir qué grabar).
+#[tauri::command]
+fn show_window(app: AppHandle) {
+    tray::show_window(&app);
+}
+
+/// Guarda la grabación en curso y, al terminar, muestra la ventana con el resultado.
+fn finish_recording(app: &AppHandle) -> Result<PathBuf, String> {
+    let recording = app
+        .state::<AppState>()
         .recording
         .lock()
         .map_err(|e| e.to_string())?
         .take()
         .ok_or(tr!("No hay ninguna grabación en curso.", "No recording in progress."))?;
     app.state::<tray::Tray>().set_recording(false);
-    recording.stop()
+    let result = recording.stop();
+    tray::show_window(app);
+    result
+}
+
+/// Grabar o detener desde el ícono o el atajo global. Detener no pasa por la
+/// interfaz: con la ventana oculta, el sistema puede tenerla suspendida.
+pub(crate) fn toggle_recording(app: &AppHandle) {
+    // Ocupado significa que está arrancando: se ignora, como el botón deshabilitado.
+    let Ok(recording) = app.state::<AppState>().recording.try_lock().map(|r| r.is_some()) else {
+        return;
+    };
+    if !recording {
+        // La interfaz conoce las opciones elegidas.
+        let _ = app.emit("toggle-recording", ());
+        return;
+    }
+    let _ = app.emit("recording-stopping", ());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let result = finish_recording(&app);
+        let _ = app.emit("recording-stopped", result);
+    });
 }
 
 fn is_recording(app: &AppHandle) -> bool {
@@ -174,7 +215,7 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        tray::request_toggle(app);
+                        toggle_recording(app);
                     }
                 })
                 .build(),
@@ -207,6 +248,7 @@ pub fn run() {
             set_output_dir,
             start_recording,
             stop_recording,
+            show_window,
             recording_health
         ])
         .build(tauri::generate_context!())

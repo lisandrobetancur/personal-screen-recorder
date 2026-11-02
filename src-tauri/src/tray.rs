@@ -1,7 +1,5 @@
 //! Ícono en la barra de menú (bandeja del sistema en Windows) y atajo global
-//! para grabar y detener sin abrir la ventana. La grabación la arranca y la
-//! detiene la interfaz (que conoce las opciones elegidas): aquí solo se le
-//! avisa con el evento `toggle-recording`.
+//! para grabar y detener sin abrir la ventana. Ver `crate::toggle_recording`.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -9,7 +7,7 @@ use std::time::{Duration, Instant};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, Manager, Wry};
 
 /// Atajo global: ⌘⇧9 en Mac, Ctrl+Shift+9 en Windows.
 pub const SHORTCUT: &str = "CommandOrControl+Shift+9";
@@ -47,7 +45,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "toggle" => request_toggle(app),
+            "toggle" => crate::toggle_recording(app),
             "show" => show_window(app),
             "quit" => crate::quit(app),
             _ => {}
@@ -67,12 +65,9 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Pide a la interfaz que empiece o detenga la grabación.
-pub fn request_toggle(app: &AppHandle) {
-    let _ = app.emit("toggle-recording", ());
-}
-
 pub fn show_window(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();

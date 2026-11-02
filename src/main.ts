@@ -35,6 +35,8 @@ const els = {
   folds: document.querySelectorAll<HTMLElement>(".fold"),
   refresh: $<HTMLButtonElement>("#refresh"),
   tabs: document.querySelectorAll<HTMLButtonElement>(".tab"),
+  sourceTabs: $<HTMLDivElement>("#source-tabs"),
+  sourceHint: $<HTMLSpanElement>("#source-hint"),
   sources: $<HTMLUListElement>("#sources"),
   systemAudio: $<HTMLInputElement>("#system-audio"),
   microphone: $<HTMLInputElement>("#microphone"),
@@ -182,19 +184,36 @@ function sameSource(a: Source, b: Source) {
 
 /** "Google Chrome — Mi pestaña" → ["Google Chrome", "Mi pestaña"]. */
 function splitName(s: Source): [string, string] {
+  if (s.kind === "display" && hasSingleDisplay()) return [t("source.fullDisplay"), ""];
   const i = s.name.indexOf(" — ");
   if (s.kind === "display") return [i >= 0 ? s.name.slice(0, i) : s.name, ""];
   return i >= 0 ? [s.name.slice(0, i), s.name.slice(i + 3)] : [s.name, ""];
 }
 
+function hasSingleDisplay() {
+  return state.sources.filter((s) => s.kind === "display").length === 1;
+}
+
+function selectTab(kind: SourceKind) {
+  state.kind = kind;
+  els.tabs.forEach((t) => t.classList.toggle("active", t.dataset.kind === kind));
+}
+
 function renderSources() {
-  const list = state.sources.filter((s) => s.kind === state.kind);
+  // Con una sola pantalla no hay nada que elegir entre pestañas: una sola lista
+  // con la pantalla completa primero y luego las ventanas.
+  const single = hasSingleDisplay();
+  els.sourceTabs.hidden = single;
+  els.sourceHint.hidden = !single;
+  const list = single ? [...state.sources].sort((a, b) => a.kind.localeCompare(b.kind)) : state.sources.filter((s) => s.kind === state.kind);
   if (state.selected && !list.some((s) => sameSource(s, state.selected!))) {
-    state.selected = list.find((s) => s.kind === state.selected!.kind && s.id === state.selected!.id) ?? null;
+    state.selected = null;
   }
-  if (!state.selected && state.kind === "display" && list.length > 0) {
+  if (!state.selected && list[0]?.kind === "display") {
     state.selected = list[0];
   }
+  // Si se conecta otra pantalla, las pestañas vuelven en la de lo elegido.
+  if (single) selectTab(state.selected?.kind ?? "display");
 
   els.sources.replaceChildren(
     ...list.map((s) => {
@@ -385,7 +404,7 @@ function toggleFromShortcut() {
   if (state.busy) return;
   if (!state.recording && !state.selected) {
     // No hay qué grabar elegido: se muestra la app para elegirlo.
-    getCurrentWindow().show().then(() => getCurrentWindow().setFocus()).catch(() => {});
+    invoke("show_window").catch(() => {});
     openSection("source");
     return;
   }
@@ -430,29 +449,54 @@ async function toggleRecording() {
       startWatching();
       setStatus(t("status.recording", { name: splitName(s).filter(Boolean).join(" — ") }));
     } else {
-      window.clearInterval(state.timerId);
-      stopWatching();
-      setStatus(t("status.savingFile"));
-      const duration = els.timer.textContent;
-      const path = await invoke<string>("stop_recording");
-      state.recording = false;
-      state.lastPath = path;
-      els.lastName.textContent = path.split(/[\\/]/).pop() ?? path;
-      els.lastMeta.textContent = `${t("last.duration")} ${duration}`;
-      els.last.hidden = false;
-      setStatus(t("status.saved"));
-      // Si se detuvo con el atajo o desde el ícono, la ventana suele estar detrás.
-      if (!document.hasFocus()) sendSystemNotification(t("status.saved"), els.lastName.textContent ?? "");
+      markStopping();
+      markSaved(await invoke<string>("stop_recording"));
     }
   } catch (e) {
-    window.clearInterval(state.timerId);
-    stopWatching();
-    state.recording = false;
-    setStatus(String(e), true);
+    markFailed(e);
   } finally {
     state.busy = false;
     updateControls();
   }
+}
+
+function markStopping() {
+  window.clearInterval(state.timerId);
+  stopWatching();
+  // El cronómetro pudo quedar atrasado con la ventana oculta.
+  els.timer.textContent = formatElapsed(Date.now() - state.startedAt);
+  setStatus(t("status.savingFile"));
+}
+
+function markSaved(path: string) {
+  state.recording = false;
+  state.lastPath = path;
+  els.lastName.textContent = path.split(/[\\/]/).pop() ?? path;
+  els.lastMeta.textContent = `${t("last.duration")} ${els.timer.textContent}`;
+  els.last.hidden = false;
+  setStatus(t("status.saved"));
+}
+
+function markFailed(e: unknown) {
+  window.clearInterval(state.timerId);
+  stopWatching();
+  state.recording = false;
+  setStatus(String(e), true);
+}
+
+/** La grabación se detuvo desde el ícono o el atajo: la app solo refleja el resultado. */
+function listenToExternalStop() {
+  listen("recording-stopping", () => {
+    state.busy = true;
+    markStopping();
+    updateControls();
+  }).catch(() => {});
+  listen<{ Ok?: string; Err?: string }>("recording-stopped", ({ payload }) => {
+    if (payload.Ok !== undefined) markSaved(payload.Ok);
+    else markFailed(payload.Err);
+    state.busy = false;
+    updateControls();
+  }).catch(() => {});
 }
 
 // ---------- Inicio ----------
@@ -473,8 +517,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   els.tabs.forEach((tab) =>
     tab.addEventListener("click", () => {
-      state.kind = tab.dataset.kind as SourceKind;
-      els.tabs.forEach((t) => t.classList.toggle("active", t === tab));
+      selectTab(tab.dataset.kind as SourceKind);
       renderSources();
     }),
   );
@@ -501,6 +544,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   if (!preview) {
     listen("toggle-recording", toggleFromShortcut).catch(() => {});
+    listenToExternalStop();
     const shortcut = await invoke<string>("get_shortcut").catch(() => "");
     if (shortcut) {
       els.record.title = t("record.shortcut", { shortcut });

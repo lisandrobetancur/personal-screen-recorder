@@ -39,7 +39,7 @@
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark"></span>
-        <span>Personal Screen Recorder</span>
+        <span id="timer" class="timer">00:00:00</span>
       </div>
       <div class="theme" role="radiogroup" aria-label="Tema" data-i18n-label="theme.group">
         <button data-theme="system" title="Tema del sistema" aria-label="Tema del sistema" data-i18n-title="theme.system" data-i18n-label="theme.system"><svg><use href="#i-auto" /></svg></button>
@@ -61,7 +61,8 @@
         <div class="fold-body" id="body-source" inert>
           <div class="fold-inner">
             <div class="row source-tools">
-              <div class="tabs" role="tablist">
+              <span id="source-hint" class="source-hint" data-i18n="source.hint" hidden>La pantalla completa o una ventana</span>
+              <div class="tabs" id="source-tabs" role="tablist">
                 <button role="tab" data-kind="display" class="tab active"><svg><use href="#i-monitor" /></svg><span data-i18n="source.display">Pantalla</span></button>
                 <button role="tab" data-kind="window" class="tab"><svg><use href="#i-window" /></svg><span data-i18n="source.window">Ventana</span></button>
               </div>
@@ -159,12 +160,9 @@
         </div>
       </div>
       <p id="status" class="status" role="status"></p>
-      <div class="dock-row">
-        <button class="folder" id="change-dir" title="Elegir la carpeta donde se guardan las grabaciones">
-          <svg><use href="#i-folder" /></svg><span id="output-dir"></span><span class="folder-action" data-i18n="folder.change">Cambiar</span>
-        </button>
-        <span id="timer" class="timer">00:00:00</span>
-      </div>
+      <button class="folder" id="change-dir" title="Elegir la carpeta donde se guardan las grabaciones">
+        <svg><use href="#i-folder" /></svg><span id="output-dir"></span><span class="folder-action" data-i18n="folder.change">Cambiar</span>
+      </button>
       <button id="record" class="record-button" disabled>
         <span class="dot"></span><span id="record-label">Grabar</span><kbd id="record-kbd" hidden></kbd>
       </button>

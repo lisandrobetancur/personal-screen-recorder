@@ -14,10 +14,11 @@
     "windows": [
       {
         "title": "Personal Screen Recorder",
-        "width": 460,
-        "height": 560,
-        "minWidth": 400,
-        "minHeight": 360
+        "width": 306,
+        "height": 330,
+        "minWidth": 290,
+        "minHeight": 220,
+        "backgroundThrottling": "disabled"
       }
     ],
     "security": {

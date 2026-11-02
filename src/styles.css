@@ -80,7 +80,7 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font: 12.5px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   -webkit-user-select: none;
@@ -105,8 +105,8 @@ input:disabled {
 }
 
 svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -122,7 +122,7 @@ svg {
 
 small {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -136,24 +136,26 @@ small {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 6px;
+  padding: 6px 10px 0;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 650;
-  font-size: 15px;
-  letter-spacing: -0.01em;
 }
 
 .brand-mark {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
+  margin-left: 3px;
   border-radius: 50%;
   background: var(--record);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--record) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--record) 18%, transparent);
+}
+
+body.is-recording .brand-mark {
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
 .theme {
@@ -168,8 +170,8 @@ small {
 .theme button {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 26px;
+  width: 24px;
+  height: 20px;
   border: none;
   border-radius: 999px;
   background: none;
@@ -177,8 +179,8 @@ small {
 }
 
 .theme button svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
 }
 
 .theme button:hover {
@@ -197,8 +199,8 @@ main {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 10px 16px 16px;
+  gap: 4px;
+  padding: 6px 10px 8px;
 }
 
 /* Las tarjetas nunca se comprimen: si falta alto, la ventana crece o main
@@ -211,8 +213,8 @@ main > * {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 14px;
-  border-radius: 14px;
+  padding: 12px;
+  border-radius: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -241,10 +243,10 @@ h2 {
 .icon-button {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: none;
   color: var(--muted);
 }
@@ -287,10 +289,10 @@ h2 {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 13px 14px;
+  gap: 7px;
+  padding: 6px 8px;
   border: none;
-  border-radius: 14px;
+  border-radius: 10px;
   background: none;
   text-align: left;
 }
@@ -323,13 +325,13 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
 }
 
 .chevron {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   color: var(--faint);
   transition: transform 0.2s;
 }
@@ -354,13 +356,13 @@ h2 {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 14px;
+  gap: 1px;
+  padding: 0 8px;
   transition: padding 0.22s ease;
 }
 
 .fold.open .fold-inner {
-  padding: 2px 14px 14px;
+  padding: 0 8px 6px;
 }
 
 .row {
@@ -377,8 +379,17 @@ h2 {
   flex: 1;
 }
 
+.source-hint {
+  flex: 1;
+  min-width: 0;
+  padding-left: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .option-row {
-  padding: 4px 2px 6px;
+  gap: 8px;
+  padding: 2px 0 4px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -394,8 +405,8 @@ h2 {
 .tabs,
 .segmented {
   display: flex;
-  padding: 3px;
-  border-radius: 10px;
+  padding: 2px;
+  border-radius: 8px;
   background: var(--surface-2);
 }
 
@@ -405,18 +416,18 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 5px;
+  padding: 3px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: none;
   color: var(--muted);
   font-weight: 500;
 }
 
 .tab svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .tab.active,
@@ -436,8 +447,8 @@ h2 {
 }
 
 .segmented button {
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 2px 8px;
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
@@ -445,9 +456,9 @@ h2 {
 
 .sources {
   list-style: none;
-  margin: 8px 0 0;
+  margin: 3px 0 0;
   padding: 0;
-  max-height: 232px;
+  max-height: 142px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -463,10 +474,10 @@ h2 {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 7px;
+  padding: 3px 6px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 7px;
   background: none;
   text-align: left;
 }
@@ -511,13 +522,13 @@ h2 {
 
 .size {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--faint);
 }
 
 .empty {
-  padding: 14px 10px;
+  padding: 10px;
   text-align: center;
   color: var(--muted);
 }
@@ -527,8 +538,8 @@ h2 {
 .option {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 7px 2px;
+  gap: 7px;
+  padding: 3px 0;
 }
 
 .option > svg {
@@ -549,8 +560,8 @@ h2 {
   -webkit-appearance: none;
   position: relative;
   flex: 0 0 auto;
-  width: 38px;
-  height: 22px;
+  width: 30px;
+  height: 18px;
   margin: 0;
   border-radius: 999px;
   background: var(--border);
@@ -563,8 +574,8 @@ h2 {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
@@ -576,7 +587,7 @@ h2 {
 }
 
 .toggle:checked::after {
-  transform: translateX(16px);
+  transform: translateX(12px);
 }
 
 .toggle:disabled {
@@ -584,13 +595,14 @@ h2 {
 }
 
 .select-wrap {
-  padding: 2px 0 4px 30px;
+  padding: 0 0 2px;
 }
 
 select {
   width: 100%;
-  padding: 7px 10px;
-  border-radius: 9px;
+  font-size: 11.5px;
+  padding: 3px 6px;
+  border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -600,9 +612,9 @@ select {
 .last {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 10px 10px 14px;
-  border-radius: 14px;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
 }
@@ -629,9 +641,9 @@ select {
 .alert {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
   background: color-mix(in srgb, var(--warning) 12%, var(--surface));
 }
@@ -661,9 +673,9 @@ select {
 }
 
 .button {
-  padding: 7px 12px;
+  padding: 4px 10px;
   border: none;
-  border-radius: 9px;
+  border-radius: 7px;
   font-weight: 600;
 }
 
@@ -686,15 +698,15 @@ select {
 .dock {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 16px 16px;
+  gap: 4px;
+  padding: 4px 10px 10px;
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
 
 .status {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
   color: var(--muted);
   user-select: text;
@@ -710,25 +722,18 @@ select {
   color: var(--error);
 }
 
-.dock-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .folder {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 4px 8px 4px 6px;
-  margin-left: -6px;
+  padding: 3px 6px;
+  margin: 0 -6px;
   border: none;
   border-radius: 8px;
   background: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .folder:hover:not(:disabled) {
@@ -742,13 +747,15 @@ select {
 
 .folder-action {
   flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 4px;
   color: var(--accent-text);
   font-weight: 500;
 }
 
 .folder svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 #output-dir {
@@ -758,7 +765,7 @@ select {
 }
 
 .timer {
-  font-size: 20px;
+  font-size: 12.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
@@ -773,14 +780,14 @@ body.is-recording .timer {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 7px;
   width: 100%;
-  padding: 13px;
+  padding: 6px;
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--record);
   color: #fff;
-  font-size: 15px;
+  font-size: 12.5px;
   font-weight: 600;
   transition: box-shadow 0.2s, filter 0.2s;
 }
@@ -795,8 +802,8 @@ body.is-recording .timer {
 }
 
 .record-button .dot {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #fff;
   transition: border-radius 0.2s;
@@ -805,9 +812,9 @@ body.is-recording .timer {
 .record-button kbd {
   margin-left: 4px;
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgb(255 255 255 / 0.2);
-  font: 500 12px/1.4 inherit;
+  font: 500 11px/1.4 inherit;
   letter-spacing: 0.04em;
 }
 

@@ -39,7 +39,8 @@ export async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>)
   const results: Record<string, unknown> = {
     // En el navegador se puede probar el inglés con ?lang=en.
     get_language: new URLSearchParams(location.search).get("lang") ?? "es",
-    list_sources: sources,
+    // Con ?displays=1 se prueba un equipo con una sola pantalla.
+    list_sources: new URLSearchParams(location.search).get("displays") === "1" ? sources.filter((s) => s.id !== 2) : sources,
     list_microphones: microphones,
     get_output_dir: "/Users/demo/Movies/Personal Screen Recorder",
     set_output_dir: args?.path,
