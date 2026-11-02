@@ -3,6 +3,25 @@
 Grabador de pantalla y audio para macOS (Intel y Apple Silicon) y Windows, hecho con
 Rust + Tauri 2.
 
+## Instalar en Mac
+
+Requiere macOS 13 o posterior (micrófono: macOS 15 o posterior). El mismo `.dmg` sirve para
+Intel y Apple Silicon.
+
+1. Descarga el `.dmg` de la [última versión](https://github.com/lisandrobetancur/personal-screen-recorder/releases/latest).
+2. Ábrelo y arrastra **Personal Screen Recorder** a **Aplicaciones**.
+3. Abre la app. Como no está firmada con Apple Developer, macOS la bloquea la primera vez:
+   - **macOS 15 o posterior:** cierra el aviso y ve a **Ajustes del Sistema → Privacidad y
+     seguridad → Abrir igualmente**.
+   - **macOS 13 o 14:** clic derecho sobre la app → **Abrir**.
+   - Si dice que está dañada, ejecuta esto en Terminal y vuelve a abrirla:
+
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/Personal Screen Recorder.app"
+     ```
+
+4. Concede **Grabación de pantalla y audio del sistema** y vuelve a abrir la app.
+
 ## Estado
 
 | Función | macOS | Windows |

@@ -147,7 +147,10 @@ jobs:
           mapfile -t archivos < <(find instaladores -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \))
           printf '%s\n' "${archivos[@]}"
           instrucciones="- **Windows:** \`*-setup.exe\` (instalador) o \`*.msi\`. La app no está firmada: si aparece «Windows protegió su PC», pulsa **Más información → Ejecutar de todas formas**.
-          - **Mac (Intel y Apple Silicon):** \`*.dmg\`. No está firmada con Apple Developer: la primera vez ábrela con clic derecho → Abrir."
+          - **Mac (Intel y Apple Silicon, macOS 13 o posterior; micrófono desde macOS 15):** \`*.dmg\`. No está firmada con Apple Developer, así que macOS la bloquea la primera vez:
+            - **macOS 15 o posterior:** intenta abrirla, cierra el aviso y ve a **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**.
+            - **macOS 13 o 14:** clic derecho sobre la app → **Abrir**.
+            - Si dice que está dañada, ejecuta en Terminal: \`xattr -dr com.apple.quarantine \"/Applications/Personal Screen Recorder.app\"\`"
 
           if [ -z "$VERSION" ]; then
             gh release delete ultima-version --yes --cleanup-tag || true
